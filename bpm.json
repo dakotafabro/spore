@@ -1,0 +1,21 @@
+{
+  "name": "spore",
+  "version": "0.2.1",
+  "type": "extension",
+  "description": "Biomimetic agent memory - use-driven decay, proximity graphs, and interoception for your knowledge base",
+  "entry": "mcp/src/mcp_spore/server.py",
+  "files": ["mcp/src/mcp_spore/server.py", "README.md", "LICENSE", "plugin.json", "hooks", "scripts", "skills", "mcp/pyproject.toml", "mcp/uv.lock", "mcp/src"],
+  "scope": "global",
+  "token_cost": 1900,
+  "keywords": ["memory", "decay", "proximity", "interoception", "biomimetic", "retrieval", "knowledge-management"],
+  "author": {
+    "name": "Dakota Fabro",
+    "github": "dakotafabro"
+  },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/dakotafabro/spore",
+  "agents": ["goose"],
+  "dependencies": [],
+  "conflicts": [],
+  "peers": ["hyphae", "rp-why"]
+}

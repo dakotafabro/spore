@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PLUGIN_ROOT}/scripts/session-start.sh", "timeout": 5 }
+        ]
+      }
+    ],
+    "BeforeReadFile": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PLUGIN_ROOT}/scripts/on-file-read.sh", "timeout": 3 }
+        ]
+      }
+    ],
+    "AfterShellExecution": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PLUGIN_ROOT}/scripts/on-shell-exec.sh", "timeout": 3 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PLUGIN_ROOT}/scripts/session-end.sh", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}
