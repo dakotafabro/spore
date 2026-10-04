@@ -1,85 +1,50 @@
 # 🌱 Spore
 
-**Biomimetic agent memory: use-driven decay, proximity graphs, interoception.**
+**Biomimetic agent memory for goose: use-driven decay, proximity graphs and interoception.**
 
-A [goose](https://github.com/aaif-goose/goose) plugin that instruments a practitioner's workflow with self-organizing knowledge management. Inspired by mycelial network dynamics - biological systems where the topology IS the memory, frequently used paths strengthen, unused paths decay, and the system self-optimizes for the traffic it actually sees.
+A [goose](https://github.com/aaif-goose/goose) plugin and MCP server that watches which documents an agent actually uses, connects documents used together, and lets unused knowledge decay so it can be consolidated. Inspired by mycelial networks, where the topology is the memory: used paths strengthen and unused paths fade.
 
----
+> [!NOTE]
+> Spore observes and proposes. It never deletes, moves or rewrites your files on its own, and nothing leaves your machine.
 
-## The Experiment
+## Install
 
-### Problem Statement
-
-Agent memory systems today are static, accumulative, and blind to practitioner behavior. They store everything, forget nothing principled, and can't learn from how knowledge is actually used. The topology of knowledge - what relates to what, what's load-bearing, what's stale - is invisible to the system.
-
-Simultaneously, cross-discipline practitioners generate integrative knowledge through their work - connections between fields that no taxonomy predicts - but this knowledge formation is unobserved and unmeasured.
-
-### Hypothesis
-
-1. **Retrieval follows a power law.** A small number of documents account for most retrievals. The long tail is consolidation-eligible.
-2. **INDEX sufficiency increases over time.** As summaries improve through consolidation, the agent needs full docs less often.
-3. **Consolidation improves retrieval relevance.** Fewer documents competing for attention means the right context surfaces faster.
-4. **Collaboration quality correlates with context relevance.** Better context in = better collaboration out (measured via rp-why).
-5. **Cross-discipline bridges emerge from practice.** The proximity graph reveals connections between domains that directory taxonomy doesn't encode.
-6. **Bridge documents are disproportionately valuable.** High-betweenness documents correlate with higher-DOK sessions.
-7. **Interoceptive accuracy improves over time.** The agent gets better at sensing and interpreting its own resource state.
-
-### Methodology
-
-The practitioner's natural workflow IS the instrumentation. No synthetic tasks. No separate experiment protocol. The system observes work and learns from it.
-
-```
-natural workflow → generates data → records automatically → analyzes (weekly/monthly) → distills into findings
+```bash
+bpm install spore
 ```
 
-**Instruments:**
-- `.retrieval-log.csv` - every full-document access with session grouping
-- `.proximity-graph.csv` - co-retrieval graph computed from session-grouped retrievals
-- `.interoception-log.csv` - agent self-reported resource state at natural checkpoints
-- `.trust-state.yaml` - per-category trust escalation tracking
-- rp-why session scores - collaboration quality outcome measure
+Or install the goose plugin directly:
 
-### Theoretical Foundation
+```bash
+goose plugin add github:dakotafabro/spore
+```
 
-**Biomimicry:** Nature is efficient because cost is structural, not imposed. An organism that wastes energy dies. This experiment applies the same principle to agent memory - knowledge that wastes attention decays. Both are efficient because cost is felt, not managed.
+## Quick start
 
-**Mechanisms borrowed from mycelium:**
-- Reinforce/decay (pheromone rule) - used paths strengthen, unused paths atrophy
-- Consolidation as sleep - compress and migrate from expensive to cheap storage
-- Co-activation wiring (Hebbian) - nodes that fire together wire together
-- Spend only on surprise - good summaries mean less full-doc retrieval
-- Intrinsic sensing - monitoring is a property of the system, not bolted on
+In the repo you want spore to observe:
 
-**Regenerative systems design:** A system without a feedback loop is extractive by default. This experiment closes the loops - retrieval patterns feed back to memory structure, quality scores feed back to practitioner behavior, cost awareness feeds back to agent behavior.
+```bash
+spore init
+```
 
-### Timeline
+Then work normally. Every file the agent reads is logged to `.retrieval-log.csv`. After 10 or more retrievals, ask the agent to run `spore_suggest` for grouping, INDEX and consolidation suggestions based on your actual use, or `spore_status` for a summary.
 
-| Phase | Dates | Activity |
-|---|---|---|
-| Germination | Jul 13 - Aug 10, 2026 | Log retrievals + interoception. Undifferentiated sensing. |
-| First consolidation | Aug 10, 2026 | First decay computation. Identify candidates. |
-| Differentiation | Aug 10 - Oct 5, 2026 | Baselines emerge per task type. Calibration. |
-| Maturation | Oct 5, 2026+ | Self-regulation. Trust escalation. Calibrated interoception. |
-| Analysis | Oct 2026 | Test hypotheses. First findings. |
+> [!WARNING]
+> **Limits**
+> - Spore has one practitioner's data behind it (n=1). Its defaults, like the decay rate of `0.03` (a half-life of about 23 days), are starting guesses meant to be tuned.
+> - Hooks only see files the agent reads through goose's file tools and simple shell reads (`cat`, `head`, `tail`, `less`, `more`, `bat`). In Code Mode, log reads with `spore_log_retrieval`.
+> - Interoception is the agent's self-report. There's no ground truth for it.
 
-### Controls and Limitations
+<details>
+<summary>How it works</summary>
 
-- Single practitioner (n=1). Findings may not generalize.
-- The practitioner knows they're being measured (Hawthorne effect possible, but potentially useful).
-- Decay rate (lambda=0.03) is a starting guess. Will be tuned based on promotion rate.
-- Interoceptive accuracy is self-assessed. No ground truth for "correct" internal state observation.
-
----
-
-## Architecture
-
-Spore is a [goose Open Plugins](https://open-plugins.com) plugin. It hooks into the agent's tool-use lifecycle to observe behavior without modifying it.
+Spore is an [Open Plugins](https://open-plugins.com) plugin. It hooks into goose's session and tool-use lifecycle to observe behavior without changing it, and exposes its analysis as MCP tools.
 
 ```
 ┌─────────────────────────────────────────────┐
 │  Practitioner's repo / knowledge system     │
 └──────────────────┬──────────────────────────┘
-                   │ file reads (PostToolUse hook)
+                   │ file reads (BeforeReadFile hook)
                    ▼
 ┌─────────────────────────────────────────────┐
 │  spore plugin                               │
@@ -96,14 +61,38 @@ Spore is a [goose Open Plugins](https://open-plugins.com) plugin. It hooks into 
 └─────────────────────────────────────────────┘
 ```
 
+### What runs, and when
+
+**On every session start:** Generates a session ID, initializes a counter. No network calls. No data leaves your machine.
+
+**On every file read (by the agent):** Appends one line to `.retrieval-log.csv` (date, session_id, file_path, context). Skips INDEX.md and spore's own data files. No analysis runs - just a single CSV append.
+
+**On your command only:** All analysis (`status`, `suggest`, `consolidate`, `graph`, `sense`, `scaffold`) runs only when you invoke it.
+
+**Spore never:**
+- Deletes or moves files without your explicit confirmation
+- Sends data to any external service
+- Modifies your source code or documents
+- Runs background processes between sessions
+- Makes decisions on your behalf
+
+All data is plain-text CSV/YAML in your repo root. Inspect anytime: `cat .retrieval-log.csv`
+
+</details>
+
+<details>
+<summary>Reference: hooks, MCP tools, init and configuration</summary>
+
 ### Hooks
 
 | Event | What spore does |
 |---|---|
-| `SessionStart` | Initialize session state, generate session_id |
-| `PostToolUse` (read_file) | Log retrieval, increment session counter, skip INDEX/meta files |
+| `SessionStart` | Creates a session ID and resets the session counters |
+| `BeforeReadFile` | Logs the read to `.retrieval-log.csv` and increments the session count. Skips `INDEX.md` and spore's own data files |
+| `AfterShellExecution` | Logs files read through `cat`, `head`, `tail`, `less`, `more` and `bat` |
+| `SessionEnd` | Records an interoception observation when the session read any files |
 
-### MCP Tools
+### MCP tools
 
 | Tool | What it does |
 |---|---|
@@ -117,23 +106,9 @@ Spore is a [goose Open Plugins](https://open-plugins.com) plugin. It hooks into 
 | `spore_log_deposition` | Log a file creation - new knowledge deposited into the substrate |
 | `spore_log_interoception` | Log the agent's self-observed resource state at a natural transition point |
 
----
-
-## Installation
-
-```bash
-goose plugin add github:dakotafabro/spore
-```
-
-Then in any repo where you want spore to observe:
-
-```bash
-spore init
-```
-
 ### What `spore init` does
 
-Spore adapts to whatever structure it finds. No specific topology required.
+Spore adapts to whatever structure it finds. No specific topology is required.
 
 | Your repo has... | Spore does... |
 |---|---|
@@ -168,13 +143,7 @@ spore:
   importance_overrides: []      # paths that never decay (e.g., ["conventions/", "README.md"])
 ```
 
----
-
-## Growing Your Topology
-
-Spore works with any repo structure, but it also helps you evolve toward a more effective one.
-
-### `spore_suggest` (After 10+ retrievals)
+### Growing your topology with `spore_suggest`
 
 Analyzes your actual retrieval patterns and proposes personalized improvements:
 
@@ -188,30 +157,76 @@ Suggest tells you what your data actually supports. No restructuring required - 
 
 The `scripts/scaffold.sh` script can generate a `.spore-scaffold/` reference topology for comparison and incremental adoption.
 
----
+</details>
 
-## Transparency
+<details>
+<summary>The experiment: problem, hypotheses, method and timeline</summary>
 
-Spore believes open source trust is earned through visibility. Here's exactly what runs and when:
+### Problem
 
-**On every session start:** Generates a session ID, initializes a counter. No network calls. No data leaves your machine.
+Agent memory systems today are static, accumulative, and blind to practitioner behavior. They store everything, forget nothing principled, and can't learn from how knowledge is actually used. The topology of knowledge - what relates to what, what's load-bearing, what's stale - is invisible to the system.
 
-**On every file read (by the agent):** Appends one line to `.retrieval-log.csv` (date, session_id, file_path, context). Skips INDEX.md and spore's own data files. No analysis runs - just a single CSV append.
+Simultaneously, cross-discipline practitioners generate integrative knowledge through their work - connections between fields that no taxonomy predicts - but this knowledge formation is unobserved and unmeasured.
 
-**On your command only:** All analysis (`status`, `suggest`, `consolidate`, `graph`, `sense`, `scaffold`) runs only when you invoke it.
+### Hypotheses
 
-**Spore never:**
-- Deletes or moves files without your explicit confirmation
-- Sends data to any external service
-- Modifies your source code or documents
-- Runs background processes between sessions
-- Makes decisions on your behalf
+1. **Retrieval follows a power law.** A small number of documents account for most retrievals. The long tail is consolidation-eligible.
+2. **INDEX sufficiency increases over time.** As summaries improve through consolidation, the agent needs full docs less often.
+3. **Consolidation improves retrieval relevance.** Fewer documents competing for attention means the right context surfaces faster.
+4. **Collaboration quality correlates with context relevance.** Better context in = better collaboration out (measured via rp-why).
+5. **Cross-discipline bridges emerge from practice.** The proximity graph reveals connections between domains that directory taxonomy doesn't encode.
+6. **Bridge documents are disproportionately valuable.** High-betweenness documents correlate with higher-DOK sessions.
+7. **Interoceptive accuracy improves over time.** The agent gets better at sensing and interpreting its own resource state.
 
-All data is plain-text CSV/YAML in your repo root. Inspect anytime: `cat .retrieval-log.csv`
+### Method
 
----
+The practitioner's natural workflow IS the instrumentation. No synthetic tasks. No separate experiment protocol. The system observes work and learns from it.
 
-## Design Principles
+```
+natural workflow → generates data → records automatically → analyzes (weekly/monthly) → distills into findings
+```
+
+**Instruments:**
+- `.retrieval-log.csv` - every full-document access with session grouping
+- `.proximity-graph.csv` - co-retrieval graph computed from session-grouped retrievals
+- `.interoception-log.csv` - agent self-reported resource state at natural checkpoints
+- `.trust-state.yaml` - per-category trust escalation tracking
+- rp-why session scores - collaboration quality outcome measure
+
+### Theoretical foundation
+
+**Biomimicry:** Nature is efficient because cost is structural, not imposed. An organism that wastes energy dies. This experiment applies the same principle to agent memory - knowledge that wastes attention decays. Both are efficient because cost is felt, not managed.
+
+**Mechanisms borrowed from mycelium:**
+- Reinforce/decay (pheromone rule) - used paths strengthen, unused paths atrophy
+- Consolidation as sleep - compress and migrate from expensive to cheap storage
+- Co-activation wiring (Hebbian) - nodes that fire together wire together
+- Spend only on surprise - good summaries mean less full-doc retrieval
+- Intrinsic sensing - monitoring is a property of the system, not bolted on
+
+**Regenerative systems design:** A system without a feedback loop is extractive by default. This experiment closes the loops - retrieval patterns feed back to memory structure, quality scores feed back to practitioner behavior, cost awareness feeds back to agent behavior.
+
+### Timeline
+
+| Phase | Dates | Activity |
+|---|---|---|
+| Germination | Jul 13 - Aug 10, 2026 | Log retrievals + interoception. Undifferentiated sensing. |
+| First consolidation | Aug 10, 2026 | First decay computation. Identify candidates. |
+| Differentiation | Aug 10 - Oct 5, 2026 | Baselines emerge per task type. Calibration. |
+| Maturation | Oct 5, 2026+ | Self-regulation. Trust escalation. Calibrated interoception. |
+| Analysis | Oct 2026 | Test hypotheses. First findings. |
+
+### Controls and limitations
+
+- Single practitioner (n=1). Findings may not generalize.
+- The practitioner knows they're being measured, so a Hawthorne effect is possible.
+- The decay rate (lambda=0.03) is a starting guess, to be tuned from the promotion rate.
+- Interoceptive accuracy is self-assessed, with no ground truth for a "correct" internal state.
+
+</details>
+
+<details>
+<summary>Design principles</summary>
 
 1. **The practitioner governs.** Spore proposes, never acts autonomously on high-stakes decisions.
 2. **Data stays local.** All computation happens in the practitioner's repo. No external services.
@@ -219,28 +234,30 @@ All data is plain-text CSV/YAML in your repo root. Inspect anytime: `cat .retrie
 4. **Efficiency is structural.** The system doesn't need management - it self-organizes through use.
 5. **Feedback loops are closed.** Every output feeds back as input. Nothing is discarded without becoming signal.
 
----
+</details>
 
-## Testing
+<details>
+<summary>Verify it works</summary>
 
-49 tests via pytest covering core modules (decay computation, proximity graph, config resolution, CSV I/O). Tests live in `mcp/tests/`.
+49 pytest tests cover the core modules: decay computation, the proximity graph, config resolution and CSV I/O.
 
 ```bash
 cd mcp && python3 -m pytest tests/
 ```
 
-## Scripts
+Expected: `49 passed`.
 
-12 shell scripts in `scripts/` power the hook-based lifecycle and standalone operations:
+The 12 shell scripts in `scripts/` run the hooks and the standalone commands:
 
-- `session-start.sh`, `session-end.sh` - session lifecycle hooks
-- `on-file-read.sh`, `on-shell-exec.sh` - retrieval capture hooks
-- `status.sh`, `suggest.sh`, `consolidate.sh`, `graph.sh`, `sense.sh`, `init.sh`, `scaffold.sh` - CLI wrappers
-- `metrics.sh` - prints experiment metrics from your local logs to the terminal. It never writes them to a tracked file
+- `session-start.sh`, `session-end.sh`: session lifecycle hooks
+- `on-file-read.sh`, `on-shell-exec.sh`: retrieval capture hooks
+- `status.sh`, `suggest.sh`, `consolidate.sh`, `graph.sh`, `sense.sh`, `init.sh`, `scaffold.sh`: CLI wrappers
+- `metrics.sh`: prints experiment metrics from your local logs to the terminal. It never writes them to a tracked file
 
----
+</details>
 
-## Version History
+<details>
+<summary>Version history</summary>
 
 | Version | Date | Changes |
 |---|---|---|
@@ -248,19 +265,17 @@ cd mcp && python3 -m pytest tests/
 | 0.2.0 | 2026-08 | Structural interoception (session-end hook auto-captures), trust proposal triggers (retrieval threshold fires proposal_opportunity), SKILL.md proposal handling |
 | 0.1.0 | 2026-07 | Initial release. Retrieval logging, proximity graph, interoception (manual), decay computation, consolidation, trust state, deposition tracking, MCP extension |
 
-## Related Work
+</details>
 
-- [rp-why](https://github.com/dakotafabro/rp-why) - Collaboration quality measurement (the outcome measure for this experiment)
-- [goose](https://github.com/aaif-goose/goose) - The agent platform this plugin instruments
-- [Open Plugins](https://open-plugins.com) - The plugin format specification
+## Related
 
-
----
+- [hyphae](https://github.com/dakotafabro/hyphae): session continuity across machines, a spore peer
+- [rp-why](https://github.com/dakotafabro/rp-why): collaboration quality measurement, the outcome measure for this experiment
+- [goose](https://github.com/aaif-goose/goose): the agent platform spore instruments
+- [Open Plugins](https://open-plugins.com): the plugin format
 
 ## License
 
 Apache 2.0
 
----
-
-*A spore carries the full genetic potential of a mycelial network compressed into the smallest possible form. It lands on new substrate and develops based on what it encounters.*
+<sub>A spore carries the full genetic potential of a mycelial network compressed into the smallest possible form. It lands on new substrate and develops based on what it encounters.</sub>
