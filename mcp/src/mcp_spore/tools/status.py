@@ -1,8 +1,9 @@
 import json
 from typing import Any
 
-from mcp_spore.core.config import PLUGIN_ROOT, load_config, load_trust_state, resolve_repo_root
+from mcp_spore.core.config import load_config, load_trust_state, resolve_repo_root
 from mcp_spore.core.io import file_exists, read_csv
+from mcp_spore.core.session import current_session_id, rows_for, tokens_spent
 
 
 def _summarize_trust_state(trust_state: dict[str, Any]) -> dict[str, Any]:
@@ -78,33 +79,28 @@ def spore_status_impl() -> str:
 
 
 def spore_sense_impl() -> str:
-    """Current session resource state from the plugin's session state file."""
-    session_state_path = PLUGIN_ROOT / ".session-state"
+    """Resource state for this goose session, counted from the logs and goose's sessions.db."""
+    repo_root = resolve_repo_root()
+    session_id = current_session_id()
+    retrieval_path = repo_root / ".retrieval-log.csv"
+    total_retrievals = len(read_csv(str(retrieval_path))) if file_exists(str(retrieval_path)) else 0
 
-    if not session_state_path.exists():
+    if not session_id:
         return json.dumps({
             "status": "no_session",
-            "message": "No active session state found. The hooks may not have fired yet this session.",
+            "message": "AGENT_SESSION_ID is not set, so this server can't tell which session it belongs to.",
+            "repo_root": str(repo_root),
+            "total_retrievals_all_time": total_retrievals,
         }, indent=2)
 
-    lines = session_state_path.read_text().strip().splitlines()
-
-    session_id = lines[0] if len(lines) > 0 else "unknown"
-    repo_root_str = lines[1] if len(lines) > 1 else str(resolve_repo_root())
-    retrievals_this_session = int(lines[2]) if len(lines) > 2 else 0
-    tokens_spent = int(lines[3]) if len(lines) > 3 else 0
-    deliverables = int(lines[4]) if len(lines) > 4 else 0
-
-    repo_root = resolve_repo_root()
-    retrieval_path = str(repo_root / ".retrieval-log.csv")
-    total_retrievals = len(read_csv(retrieval_path)) if file_exists(retrieval_path) else 0
-
+    tokens = tokens_spent(session_id)
     result = {
         "session_id": session_id,
-        "repo_root": repo_root_str,
-        "retrievals_this_session": retrievals_this_session,
-        "tokens_spent_estimate": tokens_spent,
-        "deliverables_this_session": deliverables,
+        "repo_root": str(repo_root),
+        "retrievals_this_session": rows_for(retrieval_path, session_id),
+        "tokens_spent_estimate": tokens if tokens is not None else 0,
+        "tokens_source": "goose sessions.db" if tokens is not None else "unavailable",
+        "deliverables_this_session": rows_for(repo_root / ".deposition-log.csv", session_id),
         "total_retrievals_all_time": total_retrievals,
     }
 

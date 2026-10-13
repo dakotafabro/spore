@@ -100,8 +100,10 @@ Spore is a [goose Open Plugins](https://open-plugins.com) plugin. It hooks into 
 
 | Event | What spore does |
 |---|---|
-| `SessionStart` | Initialize session state, generate session_id |
-| `PostToolUse` (read_file) | Log retrieval, increment session counter, skip INDEX/meta files |
+| `SessionStart` | Create this session's state file under `.sessions/<goose session id>` (falls back to a generated id when goose sends none) |
+| `BeforeReadFile` | Log retrieval, increment this session's counter, skip INDEX/meta files |
+| `AfterShellExecution` | Log files read by `cat`/`head`/`tail`/`less`/`more`/`bat`, resolved from the command's own directory (following `cd`), globs expanded, missing files skipped |
+| `SessionEnd` | Write an auto interoception row (retrievals, tokens from goose's `sessions.db`, depositions) and remove this session's state file |
 
 ### MCP Tools
 
@@ -231,10 +233,11 @@ cd mcp && python3 -m pytest tests/
 
 ## Scripts
 
-12 shell scripts in `scripts/` power the hook-based lifecycle and standalone operations:
+13 shell scripts and one Python helper in `scripts/` power the hook-based lifecycle and standalone operations:
 
 - `session-start.sh`, `session-end.sh` - session lifecycle hooks
 - `on-file-read.sh`, `on-shell-exec.sh` - retrieval capture hooks
+- `session-lib.sh`, `hook_payload.py` - shared by the hooks: read the goose hook payload (session id, file path or shell command, working directory) and find the files a shell command read
 - `status.sh`, `suggest.sh`, `consolidate.sh`, `graph.sh`, `sense.sh`, `init.sh`, `scaffold.sh` - CLI wrappers
 - `metrics.sh` - prints experiment metrics from your local logs to the terminal. It never writes them to a tracked file
 
@@ -244,6 +247,7 @@ cd mcp && python3 -m pytest tests/
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.2.2 | 2026-10 | Per-session state: each goose session gets its own state file under `.sessions/<session id>` (from the hook payload, and `AGENT_SESSION_ID` in the MCP server), so sessions running at once no longer overwrite or merge each other's counts. `spore_sense` counts retrievals and deliverables from the logs for this session and reads tokens from goose's `sessions.db`. Shell reads follow `cd`, expand globs and only count files that exist. Logging tools default `session_id` to the goose session |
 | 0.2.1 | 2026-10 | Package ships only declared files. Live metrics removed from the README; `scripts/metrics.sh` prints them locally |
 | 0.2.0 | 2026-08 | Structural interoception (session-end hook auto-captures), trust proposal triggers (retrieval threshold fires proposal_opportunity), SKILL.md proposal handling |
 | 0.1.0 | 2026-07 | Initial release. Retrieval logging, proximity graph, interoception (manual), decay computation, consolidation, trust state, deposition tracking, MCP extension |

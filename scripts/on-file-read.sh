@@ -2,16 +2,17 @@
 set -euo pipefail
 
 payload="$(cat)"
-state_file="${PLUGIN_ROOT:-.}/.session-state"
+# shellcheck source=session-lib.sh
+. "$(dirname "$0")/session-lib.sh"
 
-[ -f "$state_file" ] || exit 0
+session_id="$(spore_session_id)"
+[ -n "$session_id" ] || exit 0
+state_file="$(spore_ensure_state "$session_id")"
 
-session_id="$(sed -n '1p' "$state_file")"
 repo_root="$(sed -n '2p' "$state_file")"
 retrieval_count="$(sed -n '3p' "$state_file")"
 
-file_path="$(printf '%s' "$payload" | sed -n 's/.*"matcher_context":"\([^"]*\)".*/\1/p')"
-
+file_path="$(payload_field matcher_context)"
 [ -z "$file_path" ] && exit 0
 
 case "$file_path" in

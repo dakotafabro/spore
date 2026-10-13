@@ -1,6 +1,6 @@
 {
   "name": "spore",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "extension",
   "description": "Biomimetic agent memory - use-driven decay, proximity graphs, and interoception for your knowledge base",
   "entry": "mcp/src/mcp_spore/server.py",

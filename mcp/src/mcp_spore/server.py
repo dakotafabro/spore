@@ -85,7 +85,7 @@ def spore_log_interoception(
         deliverables: Number of deliverables produced this session.
         efficiency_vs_baseline: Self-assessed efficiency - "high", "normal", or "low".
         agent_observation: Free-text felt sense of current state.
-        session_id: Optional session identifier. Auto-generated if empty.
+        session_id: Optional session identifier. Defaults to this goose session (AGENT_SESSION_ID).
     """
     return spore_log_interoception_impl(
         context_remaining_pct=context_remaining_pct,
@@ -117,7 +117,7 @@ def spore_log_deposition(
     Args:
         file_path: Path to the newly created file.
         context: What the file is and why it was created.
-        session_id: Optional session identifier. Auto-generated if empty.
+        session_id: Optional session identifier. Defaults to this goose session (AGENT_SESSION_ID).
     """
     return spore_log_deposition_impl(
         file_path=file_path,
@@ -137,7 +137,7 @@ def spore_log_retrieval(
     Args:
         file_path: Path to the file that was retrieved/opened.
         context: Optional context about why the file was retrieved.
-        session_id: Optional session identifier. Auto-generated if empty.
+        session_id: Optional session identifier. Defaults to this goose session (AGENT_SESSION_ID).
     """
     return spore_log_retrieval_impl(
         file_path=file_path,

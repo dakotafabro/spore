@@ -2,42 +2,17 @@
 set -euo pipefail
 
 payload="$(cat)"
-state_file="${PLUGIN_ROOT:-.}/.session-state"
+# shellcheck source=session-lib.sh
+. "$(dirname "$0")/session-lib.sh"
 
-[ -f "$state_file" ] || exit 0
+session_id="$(spore_session_id)"
+[ -n "$session_id" ] || exit 0
+state_file="$(spore_ensure_state "$session_id")"
 
-session_id="$(sed -n '1p' "$state_file")"
 repo_root="$(sed -n '2p' "$state_file")"
 retrieval_count="$(sed -n '3p' "$state_file")"
 
-command_str="$(printf '%s' "$payload" | sed -n 's/.*"matcher_context":"\([^"]*\)".*/\1/p')"
-
-[ -z "$command_str" ] && exit 0
-
-extract_read_paths() {
-  local cmd="$1"
-  local repo="$2"
-
-  echo "$cmd" | grep -oE '(cat|head|tail|less|more|bat)\s+[^|;&>]+' 2>/dev/null | while read -r match; do
-    echo "$match" | tr ' ' '\n' | tail -n +2 | while read -r arg; do
-      case "$arg" in
-        -*) continue ;;
-        */*|*.md|*.csv|*.yaml|*.yml|*.json|*.txt|*.sh|*.py|*.kt|*.swift|*.ts|*.js)
-          local resolved="$arg"
-          resolved="${resolved/#\~/$HOME}"
-          if [[ "$resolved" == /* ]]; then
-            echo "$resolved"
-          else
-            echo "$repo/$resolved"
-          fi
-          ;;
-      esac
-    done
-  done
-}
-
-paths="$(extract_read_paths "$command_str" "$repo_root" || true)"
-
+paths="$(printf '%s' "$payload" | python3 "$spore_script_dir/hook_payload.py" shell-reads 2>/dev/null || true)"
 [ -z "$paths" ] && exit 0
 
 retrieval_log="$repo_root/.retrieval-log.csv"
@@ -59,6 +34,12 @@ while IFS= read -r file_path; do
   case "$relative_path" in
     *INDEX.md) continue ;;
     .retrieval-log.csv|.interoception-log.csv|.trust-state.yaml|.spore.yaml|.proximity-graph.csv|.deposition-log.csv) continue ;;
+    *,*) continue ;;
+  esac
+
+  case "$relative_path" in
+    *.md|*.csv|*.yaml|*.yml|*.json|*.txt|*.sh|*.py|*.kt|*.swift|*.ts|*.js) ;;
+    *) continue ;;
   esac
 
   retrieval_count=$((retrieval_count + 1))

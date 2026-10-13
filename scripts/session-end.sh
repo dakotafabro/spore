@@ -2,18 +2,29 @@
 set -euo pipefail
 
 payload="$(cat)"
-state_file="${PLUGIN_ROOT:-.}/.session-state"
+# shellcheck source=session-lib.sh
+. "$(dirname "$0")/session-lib.sh"
 
+session_id="$(spore_session_id)"
+[ -n "$session_id" ] || exit 0
+state_file="$(spore_state_file "$session_id")"
 [ -f "$state_file" ] || exit 0
 
-session_id="$(sed -n '1p' "$state_file")"
 repo_root="$(sed -n '2p' "$state_file")"
 retrieval_count="$(sed -n '3p' "$state_file")"
-tokens_spent="$(sed -n '4p' "$state_file")"
-deliverables="$(sed -n '5p' "$state_file")"
 
+goose_db="${SPORE_GOOSE_DB:-$HOME/.local/share/goose/sessions/sessions.db}"
+tokens_spent=0
+if [ -f "$goose_db" ] && command -v sqlite3 >/dev/null; then
+  tokens_spent="$(sqlite3 "file:$goose_db?mode=ro" "select coalesce(accumulated_total_tokens, total_tokens, 0) from sessions where id = '$session_id'" 2>/dev/null || true)"
+fi
 tokens_spent="${tokens_spent:-0}"
-deliverables="${deliverables:-0}"
+
+deliverables=0
+deposition_log="$repo_root/.deposition-log.csv"
+if [ -f "$deposition_log" ]; then
+  deliverables="$(awk -F, -v id="$session_id" '$2 == id' "$deposition_log" | wc -l | tr -d ' ')"
+fi
 
 if [ "$retrieval_count" -gt 0 ] 2>/dev/null; then
   interoception_log="${repo_root}/.interoception-log.csv"

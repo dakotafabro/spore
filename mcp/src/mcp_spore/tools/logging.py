@@ -3,6 +3,7 @@ from datetime import datetime
 
 from mcp_spore.core.config import resolve_repo_root
 from mcp_spore.core.io import append_csv_row, file_exists, read_csv
+from mcp_spore.core.session import current_session_id
 
 
 INTEROCEPTION_FIELDS = [
@@ -41,7 +42,7 @@ def spore_log_interoception_impl(
 
     if not session_id:
         today = datetime.now().strftime("%Y-%m-%d")
-        session_id = f"{today}-session"
+        session_id = current_session_id() or f"{today}-session"
 
     row = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -75,7 +76,7 @@ def spore_log_deposition_impl(
 
     today = datetime.now().strftime("%Y-%m-%d")
     if not session_id:
-        session_id = f"{today}-session"
+        session_id = current_session_id() or f"{today}-session"
 
     row = {
         "date": today,
@@ -113,7 +114,7 @@ def spore_log_retrieval_impl(
 
     today = datetime.now().strftime("%Y-%m-%d")
     if not session_id:
-        session_id = f"{today}-manual"
+        session_id = current_session_id() or f"{today}-manual"
 
     row = {
         "date": today,
