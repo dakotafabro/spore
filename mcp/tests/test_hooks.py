@@ -64,6 +64,29 @@ class TestShellReads:
         assert shell_reads('cat "docs/a.md', str(make_repo(tmp_path))) == []
 
 
+    def test_sed_awk_grep_rg_skip_the_script_or_pattern(self, tmp_path):
+        # given
+        repo = make_repo(tmp_path)
+        a, b = str(repo / "docs" / "a.md"), str(repo / "docs" / "b.md")
+
+        # when
+        found = [
+            shell_reads("sed -n 1,20p docs/a.md", str(repo)),
+            shell_reads("awk '/x/{print}' docs/b.md", str(repo)),
+            shell_reads("grep -n -A 2 docs docs/a.md docs/b.md", str(repo)),
+            shell_reads("rg -g '*.md' pattern docs/b.md", str(repo)),
+            shell_reads("grep -e docs/a.md docs/b.md", str(repo)),
+        ]
+
+        # then
+        assert found == [[a], [b], [a, b], [b], [b]]
+
+    def test_sed_in_place_is_not_a_read(self, tmp_path):
+        repo = make_repo(tmp_path)
+        assert shell_reads("sed -i '' 's/a/b/' docs/a.md", str(repo)) == []
+        assert shell_reads("sed -i.bak 's/a/b/' docs/a.md", str(repo)) == []
+
+
 class TestHooksKeepSessionsApart:
     def test_two_sessions_count_separately(self, tmp_path):
         # given

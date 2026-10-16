@@ -6,7 +6,10 @@ Usage:
   hook_payload.py shell-reads         print the files a shell command read
 
 shell-reads prints one absolute path per line: files that a `cat`, `head`,
-`tail`, `less`, `more` or `bat` in the command read, resolved against the
+`tail`, `less`, `more` or `bat` in the command read, plus the file operands of
+`sed`, `awk`, `grep` and `rg` (their first operand is the script or pattern
+unless -e or -f supplied it, and `sed -i` is an edit, not a read), resolved
+against the
 directory the command was in at that point (following any `cd` before it,
 starting from the payload's working_dir), with globs expanded. Paths that
 don't exist are skipped, so a relative path never counts as a file in
@@ -21,6 +24,12 @@ import shlex
 import sys
 
 READERS = {"cat", "head", "tail", "less", "more", "bat"}
+PATTERN_READERS = {
+    "sed": {"script": {"-e", "-f", "--expression", "--file"}, "value": set()},
+    "awk": {"script": {"-f"}, "value": {"-v", "-F"}},
+    "grep": {"script": {"-e", "-f", "--regexp", "--file"}, "value": {"-m", "-A", "-B", "-C", "--max-count", "--context"}},
+    "rg": {"script": {"-e", "-f", "--regexp", "--file"}, "value": {"-m", "-A", "-B", "-C", "-g", "-t", "-T", "--glob", "--type", "--max-count", "--context"}},
+}
 SEPARATORS = {";", "&&", "||", "|", "&", "\n", "(", ")"}
 SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
@@ -61,6 +70,31 @@ def resolve(path, base):
     return os.path.normpath(path if os.path.isabs(path) else os.path.join(base, path))
 
 
+def pattern_reader_files(name, args):
+    spec = PATTERN_READERS[name]
+    operands = []
+    script_given = False
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg.startswith((">", "<")):
+            continue
+        if arg.startswith("-") and arg != "-":
+            flag = arg.split("=", 1)[0]
+            if name == "sed" and (flag == "-i" or flag.startswith("-i") or flag == "--in-place"):
+                return []
+            if flag in spec["script"]:
+                script_given = True
+                skip_next = "=" not in arg
+            elif flag in spec["value"]:
+                skip_next = "=" not in arg
+            continue
+        operands.append(arg)
+    return operands if script_given else operands[1:]
+
+
 def shell_reads(command, working_dir):
     base = working_dir or os.getcwd()
     found = []
@@ -76,15 +110,18 @@ def shell_reads(command, working_dir):
             if os.path.isdir(target):
                 base = target
         elif name in READERS:
-            for arg in words[1:]:
-                if arg.startswith("-") or arg.startswith(">") or arg.startswith("<"):
-                    continue
-                candidate = resolve(arg, base)
-                matches = sorted(glob.glob(candidate)) if glob.has_magic(candidate) else [candidate]
-                for m in matches:
-                    if os.path.isfile(m) and m not in found:
-                        found.append(m)
+            add([a for a in words[1:] if not a.startswith(("-", ">", "<"))])
+        elif name in PATTERN_READERS:
+            add(pattern_reader_files(name, words[1:]))
         words.clear()
+
+    def add(args):
+        for arg in args:
+            candidate = resolve(arg, base)
+            matches = sorted(glob.glob(candidate)) if glob.has_magic(candidate) else [candidate]
+            for m in matches:
+                if os.path.isfile(m) and m not in found:
+                    found.append(m)
 
     for tok in tokens(command):
         if tok in SEPARATORS or set(tok) <= set(";&|()"):
