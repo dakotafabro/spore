@@ -193,10 +193,12 @@ def spore_graph_impl() -> str:
         output_path=graph_path,
         proximity_decay_days=config.get("proximity_decay_days", 60.0),
         prune_threshold=config.get("proximity_prune_threshold", 0.5),
+        max_session_files=config.get("proximity_max_session_files", 50),
     )
 
     result = {
         "status": "regenerated",
+        "sessions_skipped_over_file_cap": summary.get("sessions_skipped", 0),
         "output_path": graph_path,
         "edges": summary["edges"],
         "nodes": summary["nodes"],

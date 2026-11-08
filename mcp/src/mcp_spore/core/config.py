@@ -11,6 +11,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "consolidation_threshold": 0.3,
     "proximity_decay_days": 60,
     "proximity_prune_threshold": 0.5,
+    "proximity_max_session_files": 50,
     "importance_overrides": [],
     "phase": "germination",
 }

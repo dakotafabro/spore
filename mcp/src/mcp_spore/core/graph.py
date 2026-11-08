@@ -13,14 +13,17 @@ def compute_proximity_graph(
     proximity_decay_days: float = 60.0,
     prune_threshold: float = 0.5,
     reference_date: date | None = None,
+    max_session_files: int = 50,
 ) -> dict[str, Any]:
+    """Sessions that read more than max_session_files distinct files add no edges: pairs grow with the square of
+    the file count, so one broad sweep would bury the co-retrievals that mean something."""
     if reference_date is None:
         reference_date = date.today()
 
     rows = read_csv(retrieval_log_path)
     if not rows:
         write_csv(output_path, [], ["source", "target", "weight", "last_co_retrieval", "sessions_shared"])
-        return {"edges": 0, "nodes": 0, "pruned": 0}
+        return {"edges": 0, "nodes": 0, "pruned": 0, "sessions_skipped": 0}
 
     sessions: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in rows:
@@ -29,10 +32,14 @@ def compute_proximity_graph(
             sessions[session_id].append(row)
 
     edge_data: dict[tuple[str, str], dict[str, Any]] = {}
+    sessions_skipped = 0
 
     for session_id, session_rows in sessions.items():
         files_in_session = list({row.get("file", "") for row in session_rows if row.get("file", "")})
         if len(files_in_session) < 2:
+            continue
+        if len(files_in_session) > max_session_files:
+            sessions_skipped += 1
             continue
 
         session_dates = []
@@ -88,5 +95,6 @@ def compute_proximity_graph(
         "edges": len(edges),
         "nodes": len(nodes),
         "pruned": pruned_count,
+        "sessions_skipped": sessions_skipped,
         "top_edges": edges[:10],
     }

@@ -167,6 +167,7 @@ spore:
   consolidation_threshold: 0.3  # strength below this = consolidation candidate
   proximity_decay_days: 60      # co-retrieval edges not reinforced in N days get halved
   proximity_prune_threshold: 0.5
+  proximity_max_session_files: 50   # sessions reading more distinct files add no edges
   importance_overrides: []      # paths that never decay (e.g., ["conventions/", "README.md"])
 ```
 

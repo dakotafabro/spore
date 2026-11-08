@@ -45,6 +45,19 @@ class TestComputeProximityGraph:
         assert result["edges"] == 1
         assert result["nodes"] == 2
 
+    def test_sessions_over_the_file_cap_add_no_edges(self, tmp_path):
+        # given
+        broad = [{"date": "2026-06-01", "file": f"f{i}.md", "session_id": "sweep"} for i in range(4)]
+        narrow = [{"date": "2026-06-01", "file": f, "session_id": "s1"} for f in ("a.md", "b.md")]
+        log_path = _make_retrieval_log(tmp_path, broad + narrow)
+        out_path = str(tmp_path / "graph.csv")
+        # when
+        result = compute_proximity_graph(log_path, out_path, reference_date=REF_DATE, max_session_files=3)
+        # then
+        assert result["edges"] == 1
+        assert result["sessions_skipped"] == 1
+        assert [(e["source"], e["target"]) for e in read_csv(out_path)] == [("a.md", "b.md")]
+
     def test_multiple_sessions_increase_weight(self, tmp_path):
         log_path = _make_retrieval_log(tmp_path, [
             {"date": "2026-06-01", "file": "a.md", "session_id": "s1"},
