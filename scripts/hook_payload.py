@@ -11,7 +11,9 @@ shell-reads prints one absolute path per line: files that a `cat`, `head`,
 unless -e or -f supplied it, and `sed -i` is an edit, not a read), resolved
 against the
 directory the command was in at that point (following any `cd` before it,
-starting from the payload's working_dir), with globs expanded. Paths that
+starting from the payload's working_dir), with globs expanded. The target of an
+output redirect (`>`, `>>`, `2>`, `&>`) is a write, so it never counts.
+Paths that
 don't exist are skipped, so a relative path never counts as a file in
 another directory.
 """
@@ -31,6 +33,7 @@ PATTERN_READERS = {
     "rg": {"script": {"-e", "-f", "--regexp", "--file"}, "value": {"-m", "-A", "-B", "-C", "-g", "-t", "-T", "--glob", "--type", "--max-count", "--context"}},
 }
 SEPARATORS = {";", "&&", "||", "|", "&", "\n", "(", ")"}
+OUTPUT_REDIRECT = re.compile(r"^(?:\d|&)?>>?")
 SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
@@ -70,6 +73,21 @@ def resolve(path, base):
     return os.path.normpath(path if os.path.isabs(path) else os.path.join(base, path))
 
 
+def drop_output_redirects(words):
+    kept = []
+    skip_next = False
+    for word in words:
+        if skip_next:
+            skip_next = False
+            continue
+        match = OUTPUT_REDIRECT.match(word)
+        if match:
+            skip_next = match.end() == len(word)
+            continue
+        kept.append(word)
+    return kept
+
+
 def pattern_reader_files(name, args):
     spec = PATTERN_READERS[name]
     operands = []
@@ -102,6 +120,9 @@ def shell_reads(command, working_dir):
 
     def flush():
         nonlocal base
+        if not words:
+            return
+        words[:] = drop_output_redirects(words)
         if not words:
             return
         name = os.path.basename(words[0])

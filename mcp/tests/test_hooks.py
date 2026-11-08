@@ -60,6 +60,23 @@ class TestShellReads:
         assert shell_reads('cat "docs/a.md" && tail docs/b.md', str(repo)) == [
             str(repo / "docs" / "a.md"), str(repo / "docs" / "b.md")]
 
+    def test_output_redirect_targets_are_not_reads(self, tmp_path):
+        # given
+        repo = make_repo(tmp_path)
+        a, b = str(repo / "docs" / "a.md"), str(repo / "docs" / "b.md")
+
+        # when
+        found = [
+            shell_reads("cat >> docs/a.md <<'EOF'\nrow\nEOF", str(repo)),
+            shell_reads("cat docs/a.md > docs/b.md", str(repo)),
+            shell_reads("tail -1 docs/a.md 2>> docs/b.md", str(repo)),
+            shell_reads("grep x docs/a.md >docs/b.md", str(repo)),
+            shell_reads("cat < docs/b.md", str(repo)),
+        ]
+
+        # then
+        assert found == [[], [a], [a], [a], [b]]
+
     def test_unbalanced_quotes_do_not_crash(self, tmp_path):
         assert shell_reads('cat "docs/a.md', str(make_repo(tmp_path))) == []
 
