@@ -218,7 +218,13 @@ What a session spent per deliverable, reported as consumption per outcome (token
   - a Linear issue or comment when the tool reports creating it, a published note, a Drive doc once per document written, and a file when the write tool created it outside scratch directories
 - **Cost** is goose's estimate, read live and never written to spore's logs.
 
-`spore_economy` (default 7 days, up to 90) reports the median tokens per deliverable across user sessions, the median idle share, and how many sessions and tokens produced no deliverable at all. It counts deliverables, not yet whether they were kept, and it says nothing about what the work was worth: read it next to that, never as a score on its own.
+- **Asks and rework sit beside the ratio, not in it.** Decision forms count as asks, and their JSON files aren't counted as new files. Amends count as rework (amends per deliverable). A form asks for a decision and an amend redoes a commit, so counting either as a deliverable would make a session look more efficient for asking or redoing.
+
+`spore_economy` (default 7 days, up to 90) reports the median tokens per deliverable across user sessions, the median idle share, asks, rework, and how many sessions and tokens produced no deliverable at all.
+
+**Kept (opt-in, the only network call).** `spore_economy(check_kept=true)` asks GitHub through `gh` whether each issue and PR was kept: a PR is kept once merged and not kept if closed unmerged, and an issue is not kept if closed as not planned or a duplicate. Open PRs are pending. Other kinds (commits, comments, files, Linear) are reported as not checked. Final states are cached in `~/.local/state/spore/kept-cache.json`, outside the repo, so a weekly check repeats only the open ones; at most 300 lookups run per call. Sessions with known not-kept work also get `tokens_per_deliverable_less_not_kept`.
+
+None of this says what the work was worth: read it next to that, never as a score on its own.
 
 The `scripts/scaffold.sh` script can generate a `.spore-scaffold/` reference topology for comparison and incremental adoption.
 
@@ -228,7 +234,7 @@ The `scripts/scaffold.sh` script can generate a `.spore-scaffold/` reference top
 
 Spore believes open source trust is earned through visibility. Here's exactly what runs and when:
 
-**On every session start:** Generates a session ID, initializes a counter. No network calls. No data leaves your machine.
+**On every session start:** Generates a session ID, initializes a counter. No network calls. No data leaves your machine. The one exception is opt-in: `spore_economy(check_kept=true)` asks GitHub, through `gh`, for the state of the issues and PRs your sessions created, and only when you ask for it.
 
 **On every file read (by the agent):** Appends one line to `.retrieval-log.csv` (date, session_id, file_path, context). Skips INDEX.md and spore's own data files. No analysis runs - just a single CSV append.
 
@@ -279,6 +285,7 @@ cd mcp && python3 -m pytest tests/
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.4.0 | 2026-11 | Fuel economy: forms count as asks and amends as rework, beside the ratio rather than in it, and form JSON files aren't counted as new files. `spore_economy(check_kept=true)` checks with GitHub whether issues and PRs were kept, spore's only network call, opt-in, with a local cache outside the repo |
 | 0.3.1 | 2026-11 | Fuel economy counts comments, replies, reviews, decision forms, Linear issues and comments, published notes and Drive writes as deliverables, and counts quiet (`-q`) commits while leaving amends out |
 | 0.3.0 | 2026-11 | Fuel economy: `spore_sense` reports tokens per deliverable for the session, with spend split into fresh input, cache reads, output and idle preamble, and `spore_economy` reports it across recent sessions. Deliverables are derived from what the session's tools produced as well as logged; `spore_log_deposition` takes a `type` (issue, commit, pr, merge, doc, draft, review, other) |
 | 0.2.2 | 2026-10 | Per-session state: each goose session gets its own state file under `.sessions/<session id>` (from the hook payload, and `AGENT_SESSION_ID` in the MCP server), so sessions running at once no longer overwrite or merge each other's counts. `spore_sense` counts retrievals and deliverables from the logs for this session and reads tokens from goose's `sessions.db`. Shell reads follow `cd`, expand globs and only count files that exist. Logging tools default `session_id` to the goose session |

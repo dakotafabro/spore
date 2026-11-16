@@ -3,7 +3,7 @@ from typing import Any
 
 from mcp_spore.core.config import load_config, load_trust_state, resolve_repo_root
 from mcp_spore.core.io import file_exists, read_csv
-from mcp_spore.core.economy import fuel_economy, recent_session_ids, session_deliverables, session_usage, window_summary
+from mcp_spore.core.economy import KeptChecker, fuel_economy, recent_session_ids, session_deliverables, session_usage, window_summary
 from mcp_spore.core.session import current_session_id, rows_for, tokens_spent
 
 
@@ -109,12 +109,20 @@ def spore_sense_impl() -> str:
     return json.dumps(result, indent=2)
 
 
-def spore_economy_impl(window_days: int = 7) -> str:
+def spore_economy_impl(window_days: int = 7, check_kept: bool = False) -> str:
     """Tokens per deliverable across recent goose sessions, consumption per outcome."""
     repo_root = resolve_repo_root()
     window_days = max(1, min(int(window_days), 90))
-    summary = window_summary(recent_session_ids(window_days), repo_root / ".deposition-log.csv")
+    checker = KeptChecker() if check_kept else None
+    summary = window_summary(recent_session_ids(window_days), repo_root / ".deposition-log.csv", kept_checker=checker)
+    if checker is not None:
+        checker.save()
+        summary["kept"]["github_lookups"] = checker.lookups
     summary["window_days"] = window_days
     summary["unit"] = "tokens per deliverable (lower is better)"
-    summary["note"] = "Counts deliverables that were logged or that a tool produced (issues, PRs, commits, merges, new files), not yet whether they were kept. Read it next to what the work was worth, never as a score on its own."
+    summary["note"] = (
+        "Deliverables are what was logged or what a tool produced. Forms are counted as asks and amends as rework, beside the ratio, not in it. "
+        + ("Kept was checked against GitHub for issues and PRs only." if check_kept else "Kept isn't checked unless check_kept is true, which asks GitHub through gh.")
+        + " Read it next to what the work was worth, never as a score on its own."
+    )
     return json.dumps(summary, indent=2)

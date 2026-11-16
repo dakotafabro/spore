@@ -2,6 +2,7 @@ import json
 import sqlite3
 
 from mcp_spore.core.economy import (
+    KeptChecker,
     deliverables_for,
     derived_deliverables,
     fuel_economy,
@@ -138,6 +139,7 @@ class TestDerivedDeliverables:
         add_call(db, "s1", "e", "shell", {"command": "gh pr merge 12 --squash"}, "", stdout="")
         add_call(db, "s1", "f", "write", {"path": "/repo/a.py"}, "Created /repo/a.py (3 lines)")
         add_call(db, "s1", "g", "write", {"path": "/tmp/x.md"}, "Created /tmp/x.md (3 lines)")
+        add_call(db, "s1", "g2", "write", {"path": "/w/review-forms/2026-11-16/1-x.json"}, "Created /w/review-forms/2026-11-16/1-x.json (9 lines)")
         add_call(db, "s1", "h", "shell", {"command": "grep -n 'gh pr merge 99' notes.md; echo \"gh issue create\""}, url, stdout="https://github.com/o/r/issues/8")
         add_call(db, "s1", "i", "shell", {"command": "cd /repo && git -C /repo commit -m y"}, "", stdout="[main 9f8e7d6c] Add y")
         add_call(db, "s1", "j", "shell", {"command": "git add -A && git commit -qm z"}, "", stdout="")
@@ -147,6 +149,7 @@ class TestDerivedDeliverables:
             "commit:1a2b3c4d": "commit",
             "commit:9f8e7d6c": "commit",
             "commit:j:0": "commit",
+            "amend:k:0": "amend",
             "merge:12": "merge",
             "/repo/a.py": "creation",
         }
@@ -236,6 +239,93 @@ class TestFuelEconomy:
 
     def test_no_usage(self):
         assert fuel_economy(None, {"issue": 1})["status"] == "no_usage"
+
+
+class TestSideLines:
+    USAGE = {
+        "requests": 2, "input_tokens": 100_000, "output_tokens": 0, "total_tokens": 100_000, "cache_read_tokens": 0,
+        "cache_write_tokens": 0, "fresh_input_tokens": 100_000, "preamble_estimate": 40_000, "idle_tokens": 80_000, "cost": None,
+    }
+
+    def test_asks_and_amends_stay_out_of_the_ratio(self):
+        economy = fuel_economy(self.USAGE, {"pr": 1, "commit": 1, "form": 6, "amend": 3})
+        assert economy["deliverables"] == 2
+        assert economy["deliverables_by_type"] == {"pr": 1, "commit": 1}
+        assert economy["asks"] == 6
+        assert economy["rework"] == {"amends": 3, "amends_per_deliverable": 1.5}
+        assert economy["tokens_per_deliverable"] == 50_000
+
+    def test_only_forms_is_no_deliverable(self):
+        economy = fuel_economy(self.USAGE, {"form": 4})
+        assert economy["status"] == "no_deliverables"
+        assert economy["asks"] == 4
+
+    def test_not_kept_is_reported_beside_the_ratio(self):
+        economy = fuel_economy(self.USAGE, {"pr": 4}, not_kept=1)
+        assert economy["tokens_per_deliverable"] == 25_000
+        assert economy["tokens_per_deliverable_less_not_kept"] == 33_333
+
+
+class FakeGitHub:
+    def __init__(self, answers):
+        self.answers = answers
+        self.calls = []
+
+    def __call__(self, path, jq):
+        self.calls.append(path)
+        return self.answers.get(path)
+
+
+class TestKeptChecker:
+    def test_states_and_cache(self, tmp_path):
+        gh = FakeGitHub({
+            "repos/o/r/pulls/1": "closed true",
+            "repos/o/r/pulls/2": "closed false",
+            "repos/o/r/pulls/3": "open false",
+            "repos/o/r/issues/4": "closed not_planned",
+            "repos/o/r/issues/5": "open null",
+            "repos/o/r/issues/6": "closed completed",
+        })
+        cache = tmp_path / "kept-cache.json"
+        checker = KeptChecker(cache, runner=gh)
+        base = "https://github.com/o/r/"
+        assert checker.state(base + "pull/1", "pr") == "kept"
+        assert checker.state(base + "pull/2", "pr") == "not_kept"
+        assert checker.state(base + "pull/3", "pr") == "pending"
+        assert checker.state(base + "issues/4", "issue") == "not_kept"
+        assert checker.state(base + "issues/5", "issue") == "kept"
+        assert checker.state(base + "issues/6", "issue") == "kept"
+        assert checker.state(base + "pull/9", "pr") == "not_checked"
+        assert checker.state("linear:TM-1", "issue") == "not_checked"
+        assert checker.state("commit:abc", "commit") == "not_checked"
+        checker.save()
+
+        again = KeptChecker(cache, runner=FakeGitHub({}))
+        assert again.state(base + "pull/1", "pr") == "kept"
+        assert again.state(base + "issues/6", "issue") == "kept"
+        assert again.state(base + "pull/3", "pr") == "not_checked"
+        assert again.state(base + "issues/5", "issue") == "not_checked"
+        assert again.lookups == 2
+
+    def test_lookup_cap(self, tmp_path):
+        checker = KeptChecker(tmp_path / "c.json", runner=FakeGitHub({"repos/o/r/pulls/1": "closed true"}), max_lookups=0)
+        assert checker.state("https://github.com/o/r/pull/1", "pr") == "not_checked"
+
+    def test_window_summary_with_kept(self, tmp_path):
+        db = tmp_path / "sessions.db"
+        make_ledger(db, LEDGER)
+        merged, closed = "https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"
+        add_call(db, "s1", "a", "shell", {"command": "gh pr create --fill"}, merged, stdout=merged)
+        add_call(db, "s1", "b", "shell", {"command": "gh pr create --fill"}, closed, stdout=closed)
+        add_call(db, "s1", "c", "shell", {"command": "trellis ask -forms f -answers a"}, "", stdout="request r1")
+        log = make_deposits(tmp_path, "")
+        checker = KeptChecker(tmp_path / "c.json", runner=FakeGitHub({"repos/o/r/pulls/1": "closed true", "repos/o/r/pulls/2": "closed false"}))
+        summary = window_summary(["s1"], log, db, kept_checker=checker)
+        assert summary["asks"] == 1
+        assert summary["kept"]["kept"] == 1
+        assert summary["kept"]["not_kept"] == 1
+        assert summary["kept"]["kept_share_of_checked"] == 0.5
+        assert summary["sessions"][0]["not_kept"] == 1
 
 
 class TestWindow:

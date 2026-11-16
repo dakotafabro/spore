@@ -22,7 +22,8 @@ Usage guidance:
 - spore_sense: Check your resource state when you notice high retrieval counts or feel inefficient.
 - spore_log_deposition: Call when you produce a deliverable: a new file (type "creation"), or an
   issue, commit, pr, merge, doc, draft or review. Deliverables are the denominator of fuel economy.
-- spore_economy: Tokens per deliverable across recent sessions, with idle preamble as its own line.
+- spore_economy: Tokens per deliverable across recent sessions, with idle preamble, asks (forms) and
+  rework (amends) as their own lines. check_kept=true asks GitHub whether issues and PRs were kept.
 - spore_suggest and spore_consolidate: For periodic maintenance, not every session.
 - spore_status: Quick overview of the memory system state.
 - spore_graph: Regenerate proximity graph from co-retrieval data. Run periodically.
@@ -46,9 +47,14 @@ def spore_sense() -> str:
 
 
 @mcp.tool()
-def spore_economy(window_days: int = 7) -> str:
-    """Fuel economy across recent sessions: median tokens per deliverable (lower is better), idle preamble share, and how many tokens went to sessions with no deliverable logged."""
-    return spore_economy_impl(window_days)
+def spore_economy(window_days: int = 7, check_kept: bool = False) -> str:
+    """Fuel economy across recent sessions: median tokens per deliverable (lower is better), idle preamble share, asks (forms) and rework (amends) beside the ratio, and tokens in sessions with no deliverable.
+
+    Args:
+        window_days: Days to look back, 1 to 90.
+        check_kept: When true, ask GitHub through gh whether each issue and PR was kept (PR merged; issue not closed as not planned or duplicate). This is spore's only network call, and it runs only when asked.
+    """
+    return spore_economy_impl(window_days, check_kept)
 
 
 @mcp.tool()

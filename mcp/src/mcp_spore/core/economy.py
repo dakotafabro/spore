@@ -9,16 +9,21 @@ biggest gains.
 Spend comes from goose's usage_ledger, one row per model request. Idle is the
 preamble paid on every request (system prompt, policy, tool schemas),
 estimated as the smallest input of any request in the session times the
-number of requests. Deliverables come from spore's deposition log and from what the session's
+number of requests. Forms (asks) and amends (rework) are reported beside the
+ratio, not in it. Deliverables come from spore's deposition log and from what the session's
 tools produced: issues and PRs, commits, merges, comments, replies, reviews,
 decision forms, Linear issues and comments, published notes, Drive docs and new files. Cost is
-read live from goose and never written to spore's logs.
+read live from goose and never written to spore's logs. Whether issues and PRs
+were kept is checked against GitHub only when asked (KeptChecker); everything
+else here stays on this machine.
 """
 
 import json
+import os
 import re
 import sqlite3
 import statistics
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -49,6 +54,8 @@ GRAPHQL_REVIEW = re.compile(r"\b(addPullRequestReview|submitPullRequestReview)\b
 POSTED_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/\d+#(issuecomment|discussion_r|pullrequestreview)-?(\d+)")
 REQUEST_ID = re.compile(r"^request (\S+)", re.MULTILINE)
 DRIVE_WRITES = ("create", "insert", "update", "replace", "append", "batch", "write", "copy", "upload", "delete_text", "format")
+FORM_FILE = re.compile(r"(?:^|/)(?:review-forms|decision-forms|forms)/.*\.json$")
+SIDE_LINES = {"form": "asks", "amend": "amends"}
 URL_KIND = {"issuecomment": "comment", "discussion_r": "reply", "pullrequestreview": "review"}
 SCRATCH_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
 
@@ -129,8 +136,10 @@ def _from_shell(found: dict[str, str], call_id: str, command: str, text: str) ->
     if CREATES_ITEM.search(command):
         for match in GITHUB_ITEM.finditer(text):
             found.setdefault(match.group(0), "issue" if match.group(1) == "issues" else "pr")
-    new_commits = sum(1 for flags in COMMITS.findall(command) if "--amend" not in flags)
+    commit_flags = COMMITS.findall(command)
+    new_commits = sum(1 for flags in commit_flags if "--amend" not in flags)
     _take(found, [f"commit:{sha[:12]}" for sha in COMMIT_LINE.findall(text)], new_commits, "commit", f"commit:{call_id}")
+    _take(found, [], len(commit_flags) - new_commits, "amend", f"amend:{call_id}")
     for target in MERGE_TARGET.findall(command):
         found.setdefault(f"merge:{target}", "merge")
 
@@ -157,7 +166,7 @@ def _from_tool(found: dict[str, str], call_id: str, name: str, args: dict, text:
     short = name.rsplit("__", 1)[-1]
     if short == "write":
         for path in CREATED_FILE.findall(text):
-            if not path.startswith(SCRATCH_PREFIXES):
+            if not path.startswith(SCRATCH_PREFIXES) and not FORM_FILE.search(path):
                 found.setdefault(path, "creation")
     elif short == "save_issue" and re.search(r'"action":\s*"created"', text):
         ident = re.search(r'"identifier":\s*"([^"]+)"', text)
@@ -214,8 +223,8 @@ def derived_deliverables(session_id: str, db_path: Path | None = None) -> dict[s
     return found
 
 
-def session_deliverables(session_id: str, log_path: Path, db_path: Path | None = None) -> dict[str, int]:
-    """Logged deliverables plus derived ones from the session and its subagents, each counted once."""
+def session_outputs(session_id: str, log_path: Path, db_path: Path | None = None) -> dict[str, str]:
+    """Everything the session and its subagents produced, keyed so each counts once, with its kind."""
     keyed: dict[str, str] = {}
     if session_id and file_exists(str(log_path)):
         for index, row in enumerate(read_csv(str(log_path))):
@@ -226,8 +235,13 @@ def session_deliverables(session_id: str, log_path: Path, db_path: Path | None =
         for sid in session_family(session_id, db_path):
             for key, kind in derived_deliverables(sid, db_path).items():
                 keyed.setdefault(key, kind)
+    return keyed
+
+
+def session_deliverables(session_id: str, log_path: Path, db_path: Path | None = None) -> dict[str, int]:
+    """Counts by kind of what the session produced, asks (forms) and amends included."""
     counts: dict[str, int] = {}
-    for kind in keyed.values():
+    for kind in session_outputs(session_id, log_path, db_path).values():
         counts[kind] = counts.get(kind, 0) + 1
     return counts
 
@@ -289,15 +303,26 @@ def deliverables_for(log_path: Path, session_id: str) -> dict[str, int]:
     return counts
 
 
-def fuel_economy(usage: dict[str, Any] | None, deliverables: dict[str, int]) -> dict[str, Any]:
-    """Tokens and cost per deliverable, with idle shown as its own line."""
+def fuel_economy(usage: dict[str, Any] | None, outputs: dict[str, int], not_kept: int = 0) -> dict[str, Any]:
+    """Tokens and cost per deliverable, with idle, asks (forms) and amends (rework) as their own lines.
+
+    Asks and amends stay out of the ratio: a form asks for a decision and an amend reworks a commit,
+    so counting either would make a session look more efficient for asking or redoing.
+    """
+    deliverables = {k: v for k, v in outputs.items() if k not in SIDE_LINES}
+    side = {SIDE_LINES[k]: outputs.get(k, 0) for k in SIDE_LINES}
     count = sum(deliverables.values())
     if usage is None:
-        return {"status": "no_usage", "message": "goose's usage_ledger has no requests for this session.", "deliverables": count}
+        return {"status": "no_usage", "message": "goose's usage_ledger has no requests for this session.", "deliverables": count, **side}
 
     result: dict[str, Any] = {
         "deliverables": count,
         "deliverables_by_type": deliverables,
+        "asks": side["asks"],
+        "rework": {
+            "amends": side["amends"],
+            "amends_per_deliverable": round(side["amends"] / count, 2) if count else None,
+        },
         "tokens": {
             "total": usage["total_tokens"],
             "input_fresh": usage["fresh_input_tokens"],
@@ -312,7 +337,7 @@ def fuel_economy(usage: dict[str, Any] | None, deliverables: dict[str, int]) -> 
     }
     if count == 0:
         result["status"] = "no_deliverables"
-        result["message"] = "Tokens spent with no deliverable logged yet, so there is no per-deliverable figure."
+        result["message"] = "Tokens spent with no deliverable yet (forms and amends don't count), so there is no per-deliverable figure."
         return result
 
     result["status"] = "ok"
@@ -320,6 +345,9 @@ def fuel_economy(usage: dict[str, Any] | None, deliverables: dict[str, int]) -> 
     result["idle_tokens_per_deliverable"] = round(usage["idle_tokens"] / count)
     if usage["cost"] is not None:
         result["cost_per_deliverable"] = round(usage["cost"] / count, 4)
+    if not_kept:
+        result["not_kept"] = not_kept
+        result["tokens_per_deliverable_less_not_kept"] = round(usage["total_tokens"] / (count - not_kept)) if count > not_kept else None
     return result
 
 
@@ -350,35 +378,133 @@ def recent_session_ids(window_days: int, db_path: Path | None = None, now: float
     return [r[0] for r in rows]
 
 
-def window_summary(session_ids: list[str], log_path: Path, db_path: Path | None = None) -> dict[str, Any]:
-    """Fuel economy across sessions: median tokens per deliverable, and sessions with none."""
+def window_summary(
+    session_ids: list[str],
+    log_path: Path,
+    db_path: Path | None = None,
+    kept_checker: "KeptChecker | None" = None,
+) -> dict[str, Any]:
+    """Fuel economy across sessions: median tokens per deliverable, asks, rework and sessions with none."""
     sessions = []
     without = 0
     tokens_without = 0
+    asks = amends = 0
+    kept_totals = {"kept": 0, "not_kept": 0, "pending": 0, "not_checked": 0}
     for sid in session_ids:
         usage = session_usage(sid, db_path)
         if usage is None:
             continue
-        economy = fuel_economy(usage, session_deliverables(sid, log_path, db_path))
+        outputs = session_outputs(sid, log_path, db_path)
+        counts: dict[str, int] = {}
+        for kind in outputs.values():
+            counts[kind] = counts.get(kind, 0) + 1
+        not_kept = 0
+        if kept_checker is not None:
+            for key, kind in outputs.items():
+                if kind in SIDE_LINES:
+                    continue
+                state = kept_checker.state(key, kind)
+                kept_totals[state] += 1
+                not_kept += state == "not_kept"
+        economy = fuel_economy(usage, counts, not_kept)
+        asks += economy.get("asks", 0)
+        amends += economy.get("rework", {}).get("amends", 0)
         if economy["status"] == "no_deliverables":
             without += 1
             tokens_without += usage["total_tokens"]
             continue
-        sessions.append({
+        entry = {
             "session_id": sid,
             "deliverables": economy["deliverables"],
             "deliverables_by_type": economy["deliverables_by_type"],
+            "asks": economy["asks"],
+            "amends": economy["rework"]["amends"],
             "tokens_per_deliverable": economy["tokens_per_deliverable"],
             "idle_share": economy["tokens"]["idle_share"],
-        })
+        }
+        if not_kept:
+            entry["not_kept"] = not_kept
+        sessions.append(entry)
 
     per = [s["tokens_per_deliverable"] for s in sessions]
     idle = [s["idle_share"] for s in sessions if s["idle_share"] is not None]
-    return {
+    delivered = sum(s["deliverables"] for s in sessions)
+    summary: dict[str, Any] = {
         "sessions_with_deliverables": len(sessions),
         "sessions_without_deliverables": without,
         "tokens_in_sessions_without_deliverables": tokens_without,
         "median_tokens_per_deliverable": round(statistics.median(per)) if per else None,
         "median_idle_share": round(statistics.median(idle), 3) if idle else None,
+        "deliverables": delivered,
+        "asks": asks,
+        "rework": {"amends": amends, "amends_per_deliverable": round(amends / delivered, 2) if delivered else None},
         "sessions": sorted(sessions, key=lambda s: s["tokens_per_deliverable"], reverse=True),
     }
+    if kept_checker is not None:
+        decided = kept_totals["kept"] + kept_totals["not_kept"]
+        summary["kept"] = {
+            **kept_totals,
+            "kept_share_of_checked": round(kept_totals["kept"] / decided, 3) if decided else None,
+            "checks": "GitHub PRs (merged is kept, closed unmerged is not) and issues (closed as not planned or duplicate is not kept); other kinds are not checked",
+        }
+    return summary
+
+
+ISSUE_OR_PR = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/(issues|pull)/(\d+)$")
+FINAL_STATES = ("kept", "not_kept")
+
+
+class KeptChecker:
+    """Asks GitHub, through `gh`, whether issues and PRs were kept. Used only when asked for.
+
+    Results that can't change (merged, closed) are cached outside the repo so a weekly check
+    repeats only the open ones. Every other kind of deliverable is reported as not checked.
+    """
+
+    def __init__(self, cache_path: Path | None = None, runner: Any = None, max_lookups: int = 300):
+        self.cache_path = cache_path or Path(os.environ.get("SPORE_STATE_DIR", str(Path.home() / ".local" / "state" / "spore"))) / "kept-cache.json"
+        self.runner = runner or self._gh
+        self.max_lookups = max_lookups
+        self.lookups = 0
+        try:
+            self.cache: dict[str, str] = json.loads(self.cache_path.read_text())
+        except (OSError, ValueError):
+            self.cache = {}
+
+    @staticmethod
+    def _gh(path: str, jq: str) -> str | None:
+        try:
+            result = subprocess.run(["gh", "api", path, "--jq", jq], capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def state(self, key: str, kind: str) -> str:
+        match = ISSUE_OR_PR.match(key)
+        if kind not in ("pr", "issue") or not match:
+            return "not_checked"
+        if key in self.cache:
+            return self.cache[key]
+        if self.lookups >= self.max_lookups:
+            return "not_checked"
+        self.lookups += 1
+        owner, repo, section, number = match.groups()
+        if section == "pull":
+            out = self.runner(f"repos/{owner}/{repo}/pulls/{number}", '"\\(.state) \\(.merged_at != null)"')
+            if out is None:
+                return "not_checked"
+            state = "kept" if out.endswith("true") else "not_kept" if out.startswith("closed") else "pending"
+        else:
+            out = self.runner(f"repos/{owner}/{repo}/issues/{number}", '"\\(.state) \\(.state_reason)"')
+            if out is None:
+                return "not_checked"
+            state = "not_kept" if out.startswith("closed") and out.split()[-1] in ("not_planned", "duplicate") else "kept"
+        if state in FINAL_STATES and not (section == "issues" and out.startswith("open")):
+            self.cache[key] = state
+        return state
+
+    def save(self) -> None:
+        if not self.cache:
+            return
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_path.write_text(json.dumps(self.cache, indent=0, sort_keys=True))

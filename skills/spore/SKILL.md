@@ -39,7 +39,7 @@ When you create a new file in the repo (not edits - new artifacts), call `spore_
 
 ## Fuel economy
 
-`spore_sense` includes `fuel_economy`: tokens per deliverable for this session (lower is better), with idle preamble as its own line. `spore_economy` reports it across recent sessions. Surface it at natural stopping points when it's unusually high, with what drove it (idle share, reads, rework), and read it next to what the work was worth, never as a score.
+`spore_sense` includes `fuel_economy`: tokens per deliverable for this session (lower is better), with idle preamble as its own line. `spore_economy` reports it across recent sessions. Forms count as asks and amends as rework, beside the ratio. Pass `check_kept=true` only when the practitioner asks whether work was kept: it's spore's one network call (GitHub through `gh`). Surface it at natural stopping points when it's unusually high, with what drove it (idle share, reads, rework), and read it next to what the work was worth, never as a score.
 
 ## Session Lifecycle
 
