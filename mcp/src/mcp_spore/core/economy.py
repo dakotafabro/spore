@@ -121,12 +121,14 @@ def _take(found: dict[str, str], keys: list[str], count: int, kind: str, fallbac
 def _api_writes(command: str) -> tuple[int, int, int]:
     """REST writes, GraphQL replies and GraphQL reviews made by `gh api` calls in a command."""
     rest = replies = reviews = 0
+    graphql = False
     for call in API_CALL.findall(command):
-        if "graphql" in call:
+        if re.match(r"\s*gh api graphql\b", call):
+            graphql = True
             continue
         if API_WRITE_FLAG.search(call + " ") and not API_READ_FLAG.search(call):
             rest += 1
-    if re.search(r"gh api graphql", command) and "mutation" in command:
+    if graphql and "mutation" in command:
         replies = len(GRAPHQL_REPLY.findall(command))
         reviews = len(GRAPHQL_REVIEW.findall(command))
     return rest, replies, reviews

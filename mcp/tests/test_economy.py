@@ -185,6 +185,11 @@ class TestPostedDeliverables:
             db, "s1", "e", "shell",
             {"command": "gh api graphql -f query='mutation{addPullRequestReviewThreadReply(input:{}){comment{id}}}'"}, "", stdout="{}",
         )
+        add_call(
+            db, "s1", "h", "shell",
+            {"command": "python3 - <<'EOF'\ns = 'if re.search(r\"gh api graphql\", command) and \"mutation\" in command: addPullRequestReviewThreadReply addPullRequestReview'\nEOF"},
+            "", stdout="",
+        )
         add_call(db, "s1", "f", "shell", {"command": "trellis ask -forms f -answers a -title t"}, "", stdout="request 20261116_34-20261116-142000.000")
         add_call(db, "s1", "g", "shell", {"command": "trellis ask -check -forms f"}, "", stdout="ok")
         assert derived_deliverables("s1", db) == {
