@@ -10,7 +10,8 @@ Spend comes from goose's usage_ledger, one row per model request. Idle is the
 preamble paid on every request (system prompt, policy, tool schemas),
 estimated as the smallest input of any request in the session times the
 number of requests. Deliverables come from spore's deposition log and from what the session's
-tools produced (issues and PRs created, commits, merges, new files). Cost is
+tools produced: issues and PRs, commits, merges, comments, replies, reviews,
+decision forms, Linear issues and comments, published notes, Drive docs and new files. Cost is
 read live from goose and never written to spore's logs.
 """
 
@@ -25,7 +26,9 @@ from typing import Any
 from mcp_spore.core.io import file_exists, read_csv
 from mcp_spore.core.session import goose_db_path
 
-DELIVERABLE_TYPES = ("creation", "issue", "commit", "pr", "merge", "doc", "draft", "review", "other")
+DELIVERABLE_TYPES = (
+    "creation", "issue", "commit", "pr", "merge", "doc", "draft", "review", "comment", "reply", "form", "message", "other",
+)
 WINDOW_SESSION_TYPES = ("user", "acp")
 
 GITHUB_ITEM = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/(issues|pull)/\d+")
@@ -33,8 +36,20 @@ COMMIT_LINE = re.compile(r"^\[[^\]\n]+ ([0-9a-f]{7,40})\]", re.MULTILINE)
 CREATED_FILE = re.compile(r"^Created (/\S+)", re.MULTILINE)
 COMMAND_START = r"(?:^|[;&|(\n])\s*"
 CREATES_ITEM = re.compile(COMMAND_START + r"gh (?:issue|pr) create\b")
-COMMITS = re.compile(COMMAND_START + r"git (?:-C \S+ )?commit\b")
+COMMITS = re.compile(COMMAND_START + r"git (?:-C \S+ )?commit\b([^;&|\n]*)")
 MERGE_TARGET = re.compile(COMMAND_START + r"gh pr merge\s+([^\s-]\S*)")
+REVIEWS = re.compile(COMMAND_START + r"gh pr review\b")
+COMMENTS = re.compile(COMMAND_START + r"gh (?:issue|pr) comment\b")
+FORMS = re.compile(COMMAND_START + r"trellis ask\b(?![^\n;&|]*\s-check\b)")
+API_CALL = re.compile(COMMAND_START + r"gh api\b[^;&|\n]*")
+API_WRITE_FLAG = re.compile(r"\s(?:-X\s*(?:POST|PATCH|PUT)|--method[ =](?:POST|PATCH|PUT)|-f|-F|--field|--raw-field|--input)\s")
+API_READ_FLAG = re.compile(r"\s(?:-X\s*GET|--method[ =]GET)\b")
+GRAPHQL_REPLY = re.compile(r"\b(addPullRequestReviewThreadReply|addPullRequestReviewComment|addComment)\b")
+GRAPHQL_REVIEW = re.compile(r"\b(addPullRequestReview|submitPullRequestReview)\b")
+POSTED_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/\d+#(issuecomment|discussion_r|pullrequestreview)-?(\d+)")
+REQUEST_ID = re.compile(r"^request (\S+)", re.MULTILINE)
+DRIVE_WRITES = ("create", "insert", "update", "replace", "append", "batch", "write", "copy", "upload", "delete_text", "format")
+URL_KIND = {"issuecomment": "comment", "discussion_r": "reply", "pullrequestreview": "review"}
 SCRATCH_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
 
 
@@ -90,12 +105,86 @@ def _response_text(value: dict) -> tuple[str, bool]:
     return text, not value.get("isError")
 
 
+def _take(found: dict[str, str], keys: list[str], count: int, kind: str, fallback: str) -> None:
+    """Record `count` deliverables of a kind, keyed by what the tool printed when it printed enough."""
+    for i in range(count):
+        found.setdefault(keys[i] if i < len(keys) else f"{fallback}:{i}", kind)
+
+
+def _api_writes(command: str) -> tuple[int, int, int]:
+    """REST writes, GraphQL replies and GraphQL reviews made by `gh api` calls in a command."""
+    rest = replies = reviews = 0
+    for call in API_CALL.findall(command):
+        if "graphql" in call:
+            continue
+        if API_WRITE_FLAG.search(call + " ") and not API_READ_FLAG.search(call):
+            rest += 1
+    if re.search(r"gh api graphql", command) and "mutation" in command:
+        replies = len(GRAPHQL_REPLY.findall(command))
+        reviews = len(GRAPHQL_REVIEW.findall(command))
+    return rest, replies, reviews
+
+
+def _from_shell(found: dict[str, str], call_id: str, command: str, text: str) -> None:
+    if CREATES_ITEM.search(command):
+        for match in GITHUB_ITEM.finditer(text):
+            found.setdefault(match.group(0), "issue" if match.group(1) == "issues" else "pr")
+    new_commits = sum(1 for flags in COMMITS.findall(command) if "--amend" not in flags)
+    _take(found, [f"commit:{sha[:12]}" for sha in COMMIT_LINE.findall(text)], new_commits, "commit", f"commit:{call_id}")
+    for target in MERGE_TARGET.findall(command):
+        found.setdefault(f"merge:{target}", "merge")
+
+    posted: dict[str, list[str]] = {"comment": [], "reply": [], "review": []}
+    for match in POSTED_URL.finditer(text):
+        posted[URL_KIND[match.group(1)]].append(match.group(0))
+    rest, graphql_replies, graphql_reviews = _api_writes(command)
+    comment_count = len(COMMENTS.findall(command))
+    _take(found, posted["comment"], comment_count, "comment", f"comment:{call_id}")
+    _take(found, [], len(REVIEWS.findall(command)), "review", f"review:{call_id}")
+    _take(found, [], graphql_replies, "reply", f"reply:{call_id}")
+    _take(found, [], graphql_reviews, "review", f"graphql-review:{call_id}")
+    if rest:
+        api_urls = posted["reply"] + posted["review"] + posted["comment"][comment_count:]
+        api_urls += [f"reply:{n}" for n in re.findall(r'"id":\s*(\d+),\s*"in_reply_to_id"', text)]
+        for url in api_urls[:rest]:
+            kind = "reply" if url.startswith("reply:") or "#discussion_r" in url else "review" if "#pullrequestreview" in url else "comment"
+            found.setdefault(url, kind)
+    forms = len(FORMS.findall(command))
+    _take(found, [f"form:{r}" for r in REQUEST_ID.findall(text)], forms, "form", f"form:{call_id}")
+
+
+def _from_tool(found: dict[str, str], call_id: str, name: str, args: dict, text: str) -> None:
+    short = name.rsplit("__", 1)[-1]
+    if short == "write":
+        for path in CREATED_FILE.findall(text):
+            if not path.startswith(SCRATCH_PREFIXES):
+                found.setdefault(path, "creation")
+    elif short == "save_issue" and re.search(r'"action":\s*"created"', text):
+        ident = re.search(r'"identifier":\s*"([^"]+)"', text)
+        found.setdefault(f"linear:{ident.group(1) if ident else call_id}", "issue")
+    elif short == "add_comment" and re.search(r'"success":\s*true', text):
+        ident = re.search(r'"id":\s*"([^"]+)"', text)
+        found.setdefault(f"linear-comment:{ident.group(1) if ident else call_id}", "comment")
+    elif short == "notes_publish" and not re.search(r'"refused":\s*true', text):
+        stored = re.search(r'stored at ([^"\s]+)', text)
+        found.setdefault(f"note:{stored.group(1) if stored else args.get('plan_id') or call_id}", "doc")
+    elif "googledrive" in name.lower():
+        operation = str(args.get("operation") or args.get("action") or short).lower()
+        if any(word in operation for word in DRIVE_WRITES):
+            target = args.get("document_id_or_url") or args.get("file_id") or args.get("spreadsheet_id") or args.get("presentation_id") or call_id
+            found.setdefault(f"drive:{target}", "doc")
+
+
 def derived_deliverables(session_id: str, db_path: Path | None = None) -> dict[str, str]:
     """Deliverables read from what the session's tools actually produced, keyed so each counts once.
 
-    Counts an issue or PR only when a `gh issue create` or `gh pr create` call printed its URL,
-    a commit only when `git commit` printed its sha, a merge only when `gh pr merge` exited 0,
-    and a file only when the write tool reported creating it outside scratch directories.
+    Only successful calls count. Issues and PRs count when `gh issue create` or `gh pr create`
+    printed their URL; commits once per `git commit` that isn't an amend, keyed by the sha when it printed one; merges when `gh pr merge` ran.
+    Comments, replies and reviews count once per `gh issue/pr comment`, `gh pr review`, writing
+    `gh api` call or GraphQL mutation, keyed by the URL the call printed when it printed one.
+    Forms count per `trellis ask`, Linear issues and comments when the tool reports creating them,
+    notes when published, Drive docs once per document written, and files when the write tool
+    created them outside scratch directories.
     """
     db_path = db_path or goose_db_path()
     found: dict[str, str] = {}
@@ -116,21 +205,12 @@ def derived_deliverables(session_id: str, db_path: Path | None = None) -> dict[s
         text, ok = _response_text(responses[call_id])
         if not ok:
             continue
-        command = str(args.get("command", "")) if isinstance(args, dict) else ""
-        if name.endswith("shell") and command:
-            if CREATES_ITEM.search(command):
-                for match in GITHUB_ITEM.finditer(text):
-                    found[match.group(0)] = "issue" if match.group(1) == "issues" else "pr"
-            if COMMITS.search(command):
-                for sha in COMMIT_LINE.findall(text):
-                    found[f"commit:{sha[:12]}"] = "commit"
-            if MERGE_TARGET.search(command):
-                for target in MERGE_TARGET.findall(command):
-                    found[f"merge:{target}"] = "merge"
-        elif name.endswith("write"):
-            for path in CREATED_FILE.findall(text):
-                if not path.startswith(SCRATCH_PREFIXES):
-                    found[path] = "creation"
+        args = args if isinstance(args, dict) else {}
+        command = str(args.get("command", ""))
+        if name.rsplit("__", 1)[-1] == "shell" and command:
+            _from_shell(found, call_id, command, text)
+        else:
+            _from_tool(found, call_id, name, args, text)
     return found
 
 

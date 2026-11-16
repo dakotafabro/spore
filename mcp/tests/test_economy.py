@@ -139,11 +139,14 @@ class TestDerivedDeliverables:
         add_call(db, "s1", "f", "write", {"path": "/repo/a.py"}, "Created /repo/a.py (3 lines)")
         add_call(db, "s1", "g", "write", {"path": "/tmp/x.md"}, "Created /tmp/x.md (3 lines)")
         add_call(db, "s1", "h", "shell", {"command": "grep -n 'gh pr merge 99' notes.md; echo \"gh issue create\""}, url, stdout="https://github.com/o/r/issues/8")
-        add_call(db, "s1", "i", "shell", {"command": "cd /repo && git -C /repo commit -qm y"}, "", stdout="[main 9f8e7d6c] Add y")
+        add_call(db, "s1", "i", "shell", {"command": "cd /repo && git -C /repo commit -m y"}, "", stdout="[main 9f8e7d6c] Add y")
+        add_call(db, "s1", "j", "shell", {"command": "git add -A && git commit -qm z"}, "", stdout="")
+        add_call(db, "s1", "k", "shell", {"command": "git commit --amend --no-edit"}, "", stdout="[main 5e5e5e5e] Add z")
         assert derived_deliverables("s1", db) == {
             url: "issue",
             "commit:1a2b3c4d": "commit",
             "commit:9f8e7d6c": "commit",
+            "commit:j:0": "commit",
             "merge:12": "merge",
             "/repo/a.py": "creation",
         }
@@ -156,6 +159,56 @@ class TestDerivedDeliverables:
         add_call(db, "s1-sub", "b", "write", {"path": "/repo/b.py"}, "Created /repo/b.py (1 lines)")
         log = make_deposits(tmp_path, f"2026-11-16,s1,{url},,pr\n2026-11-16,s1,,note,doc\n")
         assert session_deliverables("s1", log, db) == {"pr": 1, "doc": 1, "creation": 1}
+
+
+class TestPostedDeliverables:
+    def test_comments_replies_reviews_and_forms(self, tmp_path):
+        db = tmp_path / "sessions.db"
+        make_ledger(db, LEDGER)
+        comment = "https://github.com/o/r/issues/5#issuecomment-111"
+        add_call(db, "s1", "a", "shell", {"command": "gh issue comment 5 -R o/r --body-file c.md"}, comment, stdout=comment)
+        add_call(
+            db, "s1", "b", "shell",
+            {"command": "gh pr review 9 -R o/r --comment --body-file r.md && gh api repos/o/r/pulls/9/reviews --jq '.[].html_url'"},
+            "", stdout="https://github.com/o/r/pull/9#pullrequestreview-1\nhttps://github.com/o/r/pull/9#pullrequestreview-2",
+        )
+        add_call(
+            db, "s1", "c", "shell",
+            {"command": "gh api repos/o/r/pulls/9/comments/44/replies -f body=@reply.md"},
+            "", stdout='{"id":4471466797,"in_reply_to_id":44,"html_url":"https://github.com/o/r/pull/9#discussion_r4471466797"}',
+        )
+        add_call(db, "s1", "d", "shell", {"command": "gh api repos/o/r/pulls/9/comments --paginate"}, "", stdout="https://github.com/o/r/pull/9#discussion_r1")
+        add_call(
+            db, "s1", "e", "shell",
+            {"command": "gh api graphql -f query='mutation{addPullRequestReviewThreadReply(input:{}){comment{id}}}'"}, "", stdout="{}",
+        )
+        add_call(db, "s1", "f", "shell", {"command": "trellis ask -forms f -answers a -title t"}, "", stdout="request 20261116_34-20261116-142000.000")
+        add_call(db, "s1", "g", "shell", {"command": "trellis ask -check -forms f"}, "", stdout="ok")
+        assert derived_deliverables("s1", db) == {
+            comment: "comment",
+            "review:b:0": "review",
+            "https://github.com/o/r/pull/9#discussion_r4471466797": "reply",
+            "reply:e:0": "reply",
+            "form:20261116_34-20261116-142000.000": "form",
+        }
+
+    def test_linear_notes_and_drive(self, tmp_path):
+        db = tmp_path / "sessions.db"
+        make_ledger(db, LEDGER)
+        add_call(db, "s1", "a", "linear__save_issue", {"team": "TM"}, '{"success":false,"error":"bad team"}')
+        add_call(db, "s1", "b", "linear__save_issue", {"team": "x"}, '{"success":true,"action":"created","issue":{"identifier":"TM-1"}}')
+        add_call(db, "s1", "c", "linear__save_issue", {"id": "TM-1"}, '{"success":true,"action":"updated","issue":{"identifier":"TM-1"}}')
+        add_call(db, "s1", "d", "linear__add_comment", {"issue_id": "TM-1"}, '{"success":true,"comment":{"id":"c-1"}}')
+        add_call(db, "s1", "e", "notes__notes_publish", {"title": "W"}, '{"evidence":[{"kind":"output","value":"stored at drafts/w.md"}]}')
+        add_call(db, "s1", "f", "googledrive__docs_tool", {"document_id_or_url": "doc1", "operation": "list_tabs"}, "{}")
+        add_call(db, "s1", "g", "googledrive__docs_tool", {"document_id_or_url": "doc1", "operation": "insert_text"}, "{}")
+        add_call(db, "s1", "h", "googledrive__docs_tool", {"document_id_or_url": "doc1", "operation": "replace_text"}, "{}")
+        assert derived_deliverables("s1", db) == {
+            "linear:TM-1": "issue",
+            "linear-comment:c-1": "comment",
+            "note:drafts/w.md": "doc",
+            "drive:doc1": "doc",
+        }
 
 
 class TestFuelEconomy:

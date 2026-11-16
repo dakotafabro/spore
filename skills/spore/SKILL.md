@@ -35,7 +35,7 @@ The observation field is your interpretation of your state. Not a metric - a fel
 
 ## Deposition
 
-When you create a new file in the repo (not edits - new artifacts), call `spore_log_deposition`. This tracks the production side of the knowledge lifecycle. Pass `type` for other deliverables a tool can't show on its own (a doc, a draft, a review); issues, PRs, commits, merges and new files written with the write tool are picked up from the session automatically.
+When you create a new file in the repo (not edits - new artifacts), call `spore_log_deposition`. This tracks the production side of the knowledge lifecycle. Pass `type` for other deliverables a tool can't show on its own (a doc, a draft, a review); issues, PRs, commits, merges, comments, replies, reviews, decision forms, Linear issues and comments, published notes, Drive writes and new files written with the write tool are picked up from the session automatically.
 
 ## Fuel economy
 

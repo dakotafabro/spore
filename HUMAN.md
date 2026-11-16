@@ -17,7 +17,7 @@ Consolidation presents candidates for confirmation. What gets archived, merged o
 ## What it reads, writes and sends
 
 - Writes plain CSV and YAML in your repo root: `.retrieval-log.csv`, `.proximity-graph.csv`, `.interoception-log.csv`, `.trust-state.yaml`, plus per-session files under `.sessions/`.
-- Reads token counts, per-request usage and tool calls from goose's `sessions.db`, to count spend and the issues, PRs, commits, merges and files a session produced. Cost estimates are read live and never written to spore's logs.
+- Reads token counts, per-request usage and tool calls from goose's `sessions.db`, to count spend and what a session produced (issues, PRs, commits, merges, comments, replies, reviews, forms, notes, Drive writes and files). Cost estimates are read live and never written to spore's logs.
 - The README says no network calls and no data leaves your machine. If the repo is pushed, the log files go with it, file paths included.
 
 ## Cost
