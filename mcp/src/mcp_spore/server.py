@@ -1,7 +1,7 @@
 from fastmcp import FastMCP
 
 from mcp_spore.tools.status import spore_status_impl, spore_sense_impl
-from mcp_spore.tools.analysis import spore_suggest_impl, spore_consolidate_impl, spore_graph_impl
+from mcp_spore.tools.analysis import spore_suggest_impl, spore_consolidate_impl, spore_graph_impl, spore_modules_impl
 from mcp_spore.tools.logging import spore_log_deposition_impl, spore_log_interoception_impl, spore_log_retrieval_impl
 from mcp_spore.tools.init import spore_init_impl
 
@@ -24,6 +24,7 @@ Usage guidance:
 - spore_suggest and spore_consolidate: For periodic maintenance, not every session.
 - spore_status: Quick overview of the memory system state.
 - spore_graph: Regenerate proximity graph from co-retrieval data. Run periodically.
+- spore_modules: Propose router module placements (moves, labels, never-loaded). Proposals go to a human.
 - spore_init: Set up spore in a new repo. Idempotent.
 """
 
@@ -58,6 +59,12 @@ def spore_consolidate() -> str:
 def spore_graph() -> str:
     """Regenerate proximity graph from co-retrieval data. Writes .proximity-graph.csv and returns summary."""
     return spore_graph_impl()
+
+
+@mcp.tool()
+def spore_modules(window_days: int = 30) -> str:
+    """Router module topology: joins agent-context-router loads with file reads by session, leaves out shared/ modules, and proposes moves, labels and never-loaded modules for a human to decide."""
+    return spore_modules_impl(window_days)
 
 
 @mcp.tool()

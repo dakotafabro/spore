@@ -7,6 +7,7 @@ from mcp_spore.core.config import load_config, resolve_repo_root
 from mcp_spore.core.decay import compute_all_decay_scores
 from mcp_spore.core.graph import compute_proximity_graph
 from mcp_spore.core.io import file_exists, read_csv
+from mcp_spore.core.modules import module_topology
 
 
 def spore_suggest_impl() -> str:
@@ -207,3 +208,8 @@ def spore_graph_impl() -> str:
     }
 
     return json.dumps(result, indent=2)
+
+
+def spore_modules_impl(window_days: int = 30) -> str:
+    """Propose where each agent-context-router module belongs, from loads and reads grouped by session."""
+    return json.dumps(module_topology(resolve_repo_root(), window_days=window_days), indent=2)

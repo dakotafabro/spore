@@ -114,6 +114,7 @@ Spore is a [goose Open Plugins](https://open-plugins.com) plugin. It hooks into 
 | `spore_suggest` | Data-driven topology recommendations (INDEX drafts, groupings, bridges, hotspots) |
 | `spore_consolidate` | Compute decay, identify candidates, present for confirmation |
 | `spore_graph` | Regenerate proximity graph from co-retrieval data |
+| `spore_modules` | Propose where agent-context-router modules belong, from router loads and file reads grouped by session |
 | `spore_sense` | Return current session resource state |
 | `spore_log_retrieval` | Manually log a file retrieval when hooks don't fire (e.g., Code Mode) |
 | `spore_log_deposition` | Log a file creation - new knowledge deposited into the substrate |
@@ -188,6 +189,19 @@ Analyzes your actual retrieval patterns and proposes personalized improvements:
 - **Retrieval hotspots** - files opened 3x above median (might need splitting or better INDEX summaries)
 
 Suggest tells you what your data actually supports. No restructuring required - topology emerges from practice.
+
+### `spore_modules` (with agent-context-router)
+
+Joins the router's load log (`~/.local/state/agent-context-router/loads.jsonl`) with spore's retrieval log, so a module counts whether the agent loaded it through the router or read its file. Loads are grouped by session; modules in `shared/` are left out first, since they load with everything and would pull every directory together.
+
+For each module it reports, per directory, the share of its sessions that also load another module from that directory (`affinity`), and that share against the directory's base rate (`lift`), so a busy directory doesn't win by volume alone. It proposes:
+
+- **move** a module whose clear best directory isn't its own
+- **label** an unlabelled module with a clear best directory
+- **stay_unlabelled** when no directory fits clearly
+- **never_loaded** modules, with their `profile` when they're limited to one machine
+
+Proposals are for a human to decide; spore never edits the registry. Paths can be overridden with `SPORE_ROUTER_REGISTRY` and `SPORE_ROUTER_LOGS` (`:`-separated). Router loads before the router logged `session` can be rebuilt from goose's session database with `scripts/router_loads_from_goose.py`, which writes module ids, session ids and timestamps only, to `loads-backfill.jsonl`.
 
 The `scripts/scaffold.sh` script can generate a `.spore-scaffold/` reference topology for comparison and incremental adoption.
 

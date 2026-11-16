@@ -4,7 +4,7 @@ spore watches which files your agent reads and builds a picture of how your know
 
 ## What it does, and to the agent
 
-Hooks log each file the agent reads (skipping INDEX files and spore's own data), and a row of session stats at session end. Tools let the agent report stats (`spore_status`), suggest structure (`spore_suggest`), compute decay and propose archival (`spore_consolidate`), and log its own sense of its resource state (`spore_log_interoception`). The README says the hooks observe behavior without modifying it.
+Hooks log each file the agent reads (skipping INDEX files and spore's own data), and a row of session stats at session end. Tools let the agent report stats (`spore_status`), suggest structure (`spore_suggest`), compute decay and propose archival (`spore_consolidate`), propose where router modules belong (`spore_modules`, proposals only), and log its own sense of its resource state (`spore_log_interoception`). The README says the hooks observe behavior without modifying it.
 
 ## When to use it
 
