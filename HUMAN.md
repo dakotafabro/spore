@@ -4,7 +4,7 @@ spore watches which files your agent reads and builds a picture of how your know
 
 ## What it does, and to the agent
 
-Hooks log each file the agent reads (skipping INDEX files and spore's own data), and a row of session stats at session end. Tools let the agent report stats (`spore_status`), suggest structure (`spore_suggest`), compute decay and propose archival (`spore_consolidate`), propose where router modules belong (`spore_modules`, proposals only), and log its own sense of its resource state (`spore_log_interoception`). The README says the hooks observe behavior without modifying it.
+Hooks log each file the agent reads (skipping INDEX files and spore's own data), and a row of session stats at session end. Tools let the agent report stats (`spore_status`), suggest structure (`spore_suggest`), compute decay and propose archival (`spore_consolidate`), propose where router modules belong (`spore_modules`, proposals only), log its own sense of its resource state (`spore_log_interoception`), and report fuel economy, tokens spent per deliverable (`spore_sense`, `spore_economy`). The README says the hooks observe behavior without modifying it.
 
 ## When to use it
 
@@ -17,7 +17,7 @@ Consolidation presents candidates for confirmation. What gets archived, merged o
 ## What it reads, writes and sends
 
 - Writes plain CSV and YAML in your repo root: `.retrieval-log.csv`, `.proximity-graph.csv`, `.interoception-log.csv`, `.trust-state.yaml`, plus per-session files under `.sessions/`.
-- Reads token counts from goose's `sessions.db`.
+- Reads token counts, per-request usage and tool calls from goose's `sessions.db`, to count spend and the issues, PRs, commits, merges and files a session produced. Cost estimates are read live and never written to spore's logs.
 - The README says no network calls and no data leaves your machine. If the repo is pushed, the log files go with it, file paths included.
 
 ## Cost

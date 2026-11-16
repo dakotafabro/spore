@@ -3,6 +3,7 @@ from datetime import datetime
 
 from mcp_spore.core.config import resolve_repo_root
 from mcp_spore.core.io import append_csv_row, file_exists, read_csv
+from mcp_spore.core.economy import DELIVERABLE_TYPES
 from mcp_spore.core.session import current_session_id
 
 
@@ -69,8 +70,14 @@ def spore_log_deposition_impl(
     file_path: str,
     context: str = "",
     session_id: str = "",
+    type: str = "creation",
 ) -> str:
-    """Log a file creation (deposition into the knowledge substrate)."""
+    """Log a deliverable: a new file (creation), or an issue, commit, PR, merge, doc, draft or review."""
+    if type not in DELIVERABLE_TYPES:
+        return json.dumps({
+            "status": "error",
+            "message": f"Unknown type {type!r}. Use one of: {', '.join(DELIVERABLE_TYPES)}.",
+        }, indent=2)
     repo_root = resolve_repo_root()
     log_path = str(repo_root / ".deposition-log.csv")
 
@@ -83,7 +90,7 @@ def spore_log_deposition_impl(
         "session_id": session_id,
         "file": file_path,
         "context": context,
-        "type": "creation",
+        "type": type,
     }
 
     append_csv_row(log_path, row, DEPOSITION_FIELDS)
@@ -93,6 +100,7 @@ def spore_log_deposition_impl(
         "date": today,
         "session_id": session_id,
         "file": file_path,
+        "type": type,
         "context": context or "(none)",
     }, indent=2)
 

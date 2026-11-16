@@ -115,9 +115,10 @@ Spore is a [goose Open Plugins](https://open-plugins.com) plugin. It hooks into 
 | `spore_consolidate` | Compute decay, identify candidates, present for confirmation |
 | `spore_graph` | Regenerate proximity graph from co-retrieval data |
 | `spore_modules` | Propose where agent-context-router modules belong, from router loads and file reads grouped by session |
-| `spore_sense` | Return current session resource state |
+| `spore_sense` | Return current session resource state, including fuel economy |
+| `spore_economy` | Tokens per deliverable across recent sessions, with idle preamble as its own line |
 | `spore_log_retrieval` | Manually log a file retrieval when hooks don't fire (e.g., Code Mode) |
-| `spore_log_deposition` | Log a file creation - new knowledge deposited into the substrate |
+| `spore_log_deposition` | Log a deliverable: a new file, or an issue, commit, PR, merge, doc, draft or review |
 | `spore_log_interoception` | Log the agent's self-observed resource state at a natural transition point |
 
 ---
@@ -203,6 +204,17 @@ For each module it reports, per directory, the share of its sessions that also l
 
 Proposals are for a human to decide; spore never edits the registry. Paths can be overridden with `SPORE_ROUTER_REGISTRY` and `SPORE_ROUTER_LOGS` (`:`-separated). Router loads before the router logged `session` can be rebuilt from goose's session database with `scripts/router_loads_from_goose.py`, which writes module ids, session ids and timestamps only, to `loads-backfill.jsonl`.
 
+### Fuel economy (`spore_sense`, `spore_economy`)
+
+What a session spent per deliverable, reported as consumption per outcome (tokens per deliverable, lower is better), the way liters per 100 km is, rather than deliverables per token the way MPG is. Ratios like MPG make savings hard to judge: going from 10 to 20 MPG saves more fuel than going from 25 to 50 (Larrick and Soll, "The MPG Illusion", *Science*, 2008). Consumption per outcome shows the most wasteful sessions as the biggest gains.
+
+- **Spend** comes from goose's `usage_ledger`, one row per model request, with subagent sessions folded into their parent and compaction requests left out. It is split into fresh input, cache reads and output, since they are priced differently.
+- **Idle** is the preamble paid on every request (system prompt, policy, tool schemas), estimated as the session's smallest request input times its number of requests, and shown as its own line and as a share of input.
+- **Deliverables** are what the session logged with `spore_log_deposition` plus what its tools produced: an issue or PR when `gh issue create` or `gh pr create` printed its URL, a commit when `git commit` printed its sha, a merge when `gh pr merge` exited 0, and a file when the write tool created it outside scratch directories. Each counts once.
+- **Cost** is goose's estimate, read live and never written to spore's logs.
+
+`spore_economy` (default 7 days, up to 90) reports the median tokens per deliverable across user sessions, the median idle share, and how many sessions and tokens produced no deliverable at all. It counts deliverables, not yet whether they were kept, and it says nothing about what the work was worth: read it next to that, never as a score on its own.
+
 The `scripts/scaffold.sh` script can generate a `.spore-scaffold/` reference topology for comparison and incremental adoption.
 
 ---
@@ -262,6 +274,7 @@ cd mcp && python3 -m pytest tests/
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.3.0 | 2026-11 | Fuel economy: `spore_sense` reports tokens per deliverable for the session, with spend split into fresh input, cache reads, output and idle preamble, and `spore_economy` reports it across recent sessions. Deliverables are derived from what the session's tools produced as well as logged; `spore_log_deposition` takes a `type` (issue, commit, pr, merge, doc, draft, review, other) |
 | 0.2.2 | 2026-10 | Per-session state: each goose session gets its own state file under `.sessions/<session id>` (from the hook payload, and `AGENT_SESSION_ID` in the MCP server), so sessions running at once no longer overwrite or merge each other's counts. `spore_sense` counts retrievals and deliverables from the logs for this session and reads tokens from goose's `sessions.db`. Shell reads follow `cd`, expand globs and only count files that exist. Logging tools default `session_id` to the goose session |
 | 0.2.1 | 2026-10 | Package ships only declared files. Live metrics removed from the README; `scripts/metrics.sh` prints them locally |
 | 0.2.0 | 2026-08 | Structural interoception (session-end hook auto-captures), trust proposal triggers (retrieval threshold fires proposal_opportunity), SKILL.md proposal handling |

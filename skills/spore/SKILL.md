@@ -35,7 +35,11 @@ The observation field is your interpretation of your state. Not a metric - a fel
 
 ## Deposition
 
-When you create a new file in the repo (not edits - new artifacts), call `spore_log_deposition`. This tracks the production side of the knowledge lifecycle.
+When you create a new file in the repo (not edits - new artifacts), call `spore_log_deposition`. This tracks the production side of the knowledge lifecycle. Pass `type` for other deliverables a tool can't show on its own (a doc, a draft, a review); issues, PRs, commits, merges and new files written with the write tool are picked up from the session automatically.
+
+## Fuel economy
+
+`spore_sense` includes `fuel_economy`: tokens per deliverable for this session (lower is better), with idle preamble as its own line. `spore_economy` reports it across recent sessions. Surface it at natural stopping points when it's unusually high, with what drove it (idle share, reads, rework), and read it next to what the work was worth, never as a score.
 
 ## Session Lifecycle
 

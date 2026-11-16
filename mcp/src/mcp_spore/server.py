@@ -1,6 +1,6 @@
 from fastmcp import FastMCP
 
-from mcp_spore.tools.status import spore_status_impl, spore_sense_impl
+from mcp_spore.tools.status import spore_economy_impl, spore_status_impl, spore_sense_impl
 from mcp_spore.tools.analysis import spore_suggest_impl, spore_consolidate_impl, spore_graph_impl, spore_modules_impl
 from mcp_spore.tools.logging import spore_log_deposition_impl, spore_log_interoception_impl, spore_log_retrieval_impl
 from mcp_spore.tools.init import spore_init_impl
@@ -20,7 +20,9 @@ Usage guidance:
 - spore_log_interoception: Call at natural transition points - after retrievals, after producing
   a deliverable, at phase transitions. This builds the interoception dataset.
 - spore_sense: Check your resource state when you notice high retrieval counts or feel inefficient.
-- spore_log_deposition: Call when you create a new file in the repo (not edits, new artifacts).
+- spore_log_deposition: Call when you produce a deliverable: a new file (type "creation"), or an
+  issue, commit, pr, merge, doc, draft or review. Deliverables are the denominator of fuel economy.
+- spore_economy: Tokens per deliverable across recent sessions, with idle preamble as its own line.
 - spore_suggest and spore_consolidate: For periodic maintenance, not every session.
 - spore_status: Quick overview of the memory system state.
 - spore_graph: Regenerate proximity graph from co-retrieval data. Run periodically.
@@ -39,8 +41,14 @@ def spore_status() -> str:
 
 @mcp.tool()
 def spore_sense() -> str:
-    """Current session resource state. Shows retrievals, tokens, deliverables for this session."""
+    """Current session resource state: retrievals, tokens, deliverables, and fuel economy (tokens per deliverable, idle preamble share, token classes)."""
     return spore_sense_impl()
+
+
+@mcp.tool()
+def spore_economy(window_days: int = 7) -> str:
+    """Fuel economy across recent sessions: median tokens per deliverable (lower is better), idle preamble share, and how many tokens went to sessions with no deliverable logged."""
+    return spore_economy_impl(window_days)
 
 
 @mcp.tool()
@@ -110,10 +118,13 @@ def spore_log_deposition(
     file_path: str,
     context: str = "",
     session_id: str = "",
+    type: str = "creation",
 ) -> str:
-    """Log a file creation - new knowledge deposited into the substrate.
+    """Log a deliverable - new knowledge deposited into the substrate.
 
-    Call this when the agent creates a new file in the repo (not edits, but new artifacts).
+    Call this when the agent creates a new file in the repo (type "creation"), or ships
+    another deliverable: an issue, commit, pr, merge, doc, draft or review. Deliverables
+    are the denominator of fuel economy (tokens per deliverable) in spore_sense and spore_economy.
     Tracks the production side of the knowledge lifecycle alongside retrieval (consumption).
 
     The retrieval-to-deposition ratio characterizes session type:
@@ -125,11 +136,13 @@ def spore_log_deposition(
         file_path: Path to the newly created file.
         context: What the file is and why it was created.
         session_id: Optional session identifier. Defaults to this goose session (AGENT_SESSION_ID).
+        type: creation, issue, commit, pr, merge, doc, draft, review or other.
     """
     return spore_log_deposition_impl(
         file_path=file_path,
         context=context,
         session_id=session_id,
+        type=type,
     )
 
 

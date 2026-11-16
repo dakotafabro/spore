@@ -3,6 +3,7 @@ from typing import Any
 
 from mcp_spore.core.config import load_config, load_trust_state, resolve_repo_root
 from mcp_spore.core.io import file_exists, read_csv
+from mcp_spore.core.economy import fuel_economy, recent_session_ids, session_deliverables, session_usage, window_summary
 from mcp_spore.core.session import current_session_id, rows_for, tokens_spent
 
 
@@ -102,6 +103,18 @@ def spore_sense_impl() -> str:
         "tokens_source": "goose sessions.db" if tokens is not None else "unavailable",
         "deliverables_this_session": rows_for(repo_root / ".deposition-log.csv", session_id),
         "total_retrievals_all_time": total_retrievals,
+        "fuel_economy": fuel_economy(session_usage(session_id), session_deliverables(session_id, repo_root / ".deposition-log.csv")),
     }
 
     return json.dumps(result, indent=2)
+
+
+def spore_economy_impl(window_days: int = 7) -> str:
+    """Tokens per deliverable across recent goose sessions, consumption per outcome."""
+    repo_root = resolve_repo_root()
+    window_days = max(1, min(int(window_days), 90))
+    summary = window_summary(recent_session_ids(window_days), repo_root / ".deposition-log.csv")
+    summary["window_days"] = window_days
+    summary["unit"] = "tokens per deliverable (lower is better)"
+    summary["note"] = "Counts deliverables that were logged or that a tool produced (issues, PRs, commits, merges, new files), not yet whether they were kept. Read it next to what the work was worth, never as a score on its own."
+    return json.dumps(summary, indent=2)
